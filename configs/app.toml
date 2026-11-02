@@ -1,0 +1,23 @@
+# Constants of the application itself (server, sessions, limits, UI). Model constants are in town.toml.
+
+[server]
+host = "127.0.0.1"
+port = 8001
+
+[session]
+frames_per_second = 30       # frames sent to the browser while a run is playing
+frame_budget_ms = 25         # computing time per frame at speed "Max"
+max_hours_per_second = 2400  # fastest accepted playback speed, simulated hours per second (100 days/s)
+max_displayed_people = 20000 # people drawn in the browser (only for the run being watched); counts always cover everybody
+max_frame_ms = 200           # longest computing time per frame; a faster speed than the machine manages is slowed down
+max_unacknowledged_frames = 2 # frames the browser may be behind before the server waits for it
+
+[limits]
+max_diseases = 10
+max_interactions = 20
+max_total_people = 2000000  # people in all runs of one experiment together; about 1.5 GB of memory per million
+
+[ui]
+reconnect_delay_ms = 1500
+preview_delay_ms = 200
+toast_ms = 4000

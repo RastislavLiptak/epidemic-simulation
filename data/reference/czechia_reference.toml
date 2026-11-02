@@ -1,0 +1,95 @@
+# Published aggregates for the Czech Republic that the simulated population is validated against.
+# They are deliberately NOT read from configs/town.toml, so a change of the configuration cannot
+# silently change what it is compared with.
+
+[age]
+# Eurostat demo_pjan, 1 January 2019 (the last year before the pandemic), shares of the population.
+# The mean age counts a person of 42 as 42.5 years old.
+source = "https://ec.europa.eu/eurostat/databrowser/view/demo_pjan"
+under_15 = 0.159
+from_15_to_64 = 0.645
+from_65 = 0.196
+mean_age = 42.3
+
+[sex]
+# Eurostat demo_pjan, 1 January 2019.
+source = "https://ec.europa.eu/eurostat/databrowser/view/demo_pjan"
+male_share = 0.4924
+women_share_from_65 = 0.580
+
+[households]
+# Census 2021: housekeeping households.
+source = "https://scitani.gov.cz/size-of-housekeeping-household"
+mean_size = 2.15
+sizes = [1, 2, 3, 4, 5, 6]         # the last one is six or more
+size_shares = [0.3907, 0.2952, 0.1458, 0.1252, 0.0314, 0.0117]
+
+[kinds]
+# Census 2021: share of households with children living with two or with one parent.
+source = "https://scitani.gov.cz/type-of-housekeeping-household"
+single_person = 0.3907
+
+[living_alone]
+# People living alone. 65+: 688 thousand single-person households of 2.17 million (CZSO); by sex
+# EU-SILC 2021, ilc_lvps30; under 65 the labour force survey 2021, lfst_hhindws.
+source = "https://csu.gov.cz/seniori-v-datech/domacnosti-senioru"
+from_65 = 0.319
+men_from_65 = 0.210
+women_from_65 = 0.402
+age_18_24 = 0.091
+age_25_49 = 0.164
+age_55_64 = 0.205
+
+[family]
+# Eurostat. Young adults in other households than alone or in a couple, nearly always with parents:
+# 77.5 % of the 18-24 year olds (lfst_hhindws 2021). Children under 18 with one parent: 13.0 % in
+# 2021 and 14.2 % in 2023 (ilc_lvps20). Households with a child: 1,273 of 4,852 thousand (lfst_hhnhtych).
+source = "https://ec.europa.eu/eurostat/databrowser/view/ilc_lvps20"
+young_with_parents_18_24 = 0.775
+children_with_one_parent = 0.136
+households_with_children = 0.262
+
+[births]
+# Live births by age of the mother, 2019 (Eurostat demo_fasec): the ages of mothers of infants.
+source = "https://ec.europa.eu/eurostat/databrowser/view/demo_fasec"
+mother_under_25 = 0.126
+mother_25_34 = 0.656
+mother_from_35 = 0.218
+
+[employment]
+# Labour force survey 2019, employment rates (Eurostat lfsa_ergan).
+source = "https://ec.europa.eu/eurostat/databrowser/view/lfsa_ergan"
+age_15_64 = 0.751
+age_15_24 = 0.280
+age_25_49 = 0.866
+age_50_64 = 0.756
+men_15_64 = 0.819
+women_15_64 = 0.681
+
+[mothers]
+# Women of 25-49 with a job by the youngest child (Eurostat lfst_hheredch, 2019).
+source = "https://ec.europa.eu/eurostat/databrowser/view/lfst_hheredch"
+youngest_under_6 = 0.444
+
+[youth]
+# Young people neither in employment nor in education or training, Eurostat edat_lfse_20 and
+# edat_lfse_18, 2019.
+source = "https://ec.europa.eu/eurostat/databrowser/view/edat_lfse_20"
+neet_15_29 = 0.098
+neet_20_24 = 0.090
+
+[care_homes]
+# 57.8 thousand residents of homes for the elderly and homes with a special regime at the end of 2023.
+source = "https://csu.gov.cz/seniori-v-datech/zarizeni-socialnich-sluzeb-a-jejich-klienti"
+share_of_population = 0.0055
+
+[enterprises]
+# Persons employed by size of enterprise, Czechia 2021 (Eurostat sbs_sc_ovw).
+source = "https://ec.europa.eu/eurostat/databrowser/view/sbs_sc_ovw"
+under_10 = 0.331
+from_250 = 0.313
+
+[contacts]
+# Prem et al. (2021), synthetic contact matrices for Czechia; see czechia_contacts_prem2021.csv.
+source = "https://github.com/kieshaprem/synthetic-contact-matrices"
+age_groups = 16                    # 0-4, 5-9, ..., 70-74, 75+

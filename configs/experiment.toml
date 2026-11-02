@@ -1,0 +1,21 @@
+population = 3000
+arena_area = 4000000
+seed = 42
+runs = 1
+diseases = ["demo_sir", "demo_seir", "demo_sis"]
+
+# Having had demo_sir makes people less susceptible to demo_seir (cross-immunity).
+[[interactions]]
+source = "demo_sir"
+states = ["recovered"]
+target = "demo_seir"
+effect = "susceptibility"
+factor = 0.3
+
+# Being infectious with demo_sis makes people more susceptible to demo_sir.
+[[interactions]]
+source = "demo_sis"
+states = ["infectious"]
+target = "demo_sir"
+effect = "susceptibility"
+factor = 2.0

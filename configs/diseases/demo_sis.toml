@@ -1,0 +1,17 @@
+# Fictional mild disease without immunity (SIS), like a common cold.
+model = "sis"
+initial_infected = 30
+
+[parameters]
+transmission = 0.45
+contact_distance = 3.0
+infectious_days = 5.0
+duration_shape = 4.0
+fatality = 0.0005
+stay_home = 0.15
+limit_outings = 0.3
+susceptibility_cv = 0.3
+infectiousness_dispersion = 0.8
+
+[age_effects]
+fatality = [[0, 15, 0.1], [15, 50, 0.4], [50, 65, 2.0], [65, 120, 15.0]]

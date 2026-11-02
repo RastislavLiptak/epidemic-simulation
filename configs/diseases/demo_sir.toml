@@ -1,0 +1,20 @@
+# Fictional respiratory disease with lasting but not lifelong immunity (SIR).
+model = "sir"
+initial_infected = 20
+
+[parameters]
+transmission = 0.55
+contact_distance = 3.0
+infectious_days = 7.0
+duration_shape = 4.0
+fatality = 0.004
+immunity_days = 365
+immunity_protection = 0.9
+stay_home = 0.35
+limit_outings = 0.4
+susceptibility_cv = 0.3
+infectiousness_dispersion = 0.5
+
+[age_effects]
+susceptibility = [[0, 15, 0.7], [15, 65, 1.0], [65, 120, 1.1]]
+fatality = [[0, 15, 0.1], [15, 50, 0.4], [50, 65, 2.0], [65, 120, 8.0]]

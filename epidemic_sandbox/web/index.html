@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Epidemic sandbox</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="ui/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="topbar__title">Epidemic sandbox</h1>
+    <nav id="tabs" class="tabs" aria-label="Screen">
+      <button type="button" class="tabs__button" data-screen="setup">Setup</button>
+      <button type="button" class="tabs__button" data-screen="runs" disabled>Runs</button>
+      <button type="button" class="tabs__button" data-screen="results" disabled>Results</button>
+    </nav>
+    <div id="transport" class="topbar__transport" hidden>
+      <button id="button-play" class="button button--primary" type="button">
+        <svg class="button__icon" viewBox="0 0 24 24" aria-hidden="true"><path id="button-play-icon" d="M8 5v14l11-7z"/></svg>
+        <span id="button-play-label">Play</span>
+      </button>
+      <button id="button-step-day" class="button" type="button" title="Advance all runs by one day">
+        <svg class="button__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14l9-7zM17 5h2v14h-2z"/></svg>
+        <span>+1 day</span>
+      </button>
+      <button id="button-restart" class="button" type="button" title="Start all runs again from day 0">
+        <svg class="button__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+        <span>Restart</span>
+      </button>
+      <button id="button-finish" class="button" type="button" title="End the experiment and see the statistics of its course">
+        <svg class="button__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
+        <span>Finish</span>
+      </button>
+      <label class="topbar__speed" title="Simulated time that passes in one second of real time; Max runs as many steps as fit in a frame">
+        <span>Speed</span>
+        <select id="select-speed" class="select">
+          <option value="0.5">30 min / s</option>
+          <option value="1">1 hour / s</option>
+          <option value="2" selected>2 hours / s</option>
+          <option value="4">4 hours / s</option>
+          <option value="12">12 hours / s</option>
+          <option value="24">1 day / s</option>
+          <option value="72">3 days / s</option>
+          <option value="168">1 week / s</option>
+          <option value="720">30 days / s</option>
+          <option value="0">Max</option>
+        </select>
+      </label>
+      <div class="topbar__clock">Day <strong id="clock-day">0</strong><small id="clock-step"></small></div>
+    </div>
+  </header>
+
+  <main id="screen-setup" class="setup">
+    <div class="loading" role="status"><span class="spinner" aria-hidden="true"></span>Connecting to the simulation…</div>
+  </main>
+  <main id="screen-runs" class="runs" hidden></main>
+  <main id="screen-results" class="results" hidden></main>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="ui/vendor/chart.umd.js"></script>
+  <script type="module" src="ui/main.js"></script>
+</body>
+</html>
