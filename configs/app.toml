@@ -13,7 +13,6 @@ max_frame_ms = 200           # longest computing time per frame; a faster speed 
 max_unacknowledged_frames = 2 # frames the browser may be behind before the server waits for it
 
 [limits]
-max_diseases = 10
 max_interactions = 20
 max_total_people = 2000000  # people in all runs of one experiment together; about 1.5 GB of memory per million
 

@@ -31,14 +31,13 @@ def describe_setup(library: ExperimentLibrary) -> dict:
             "initial_infected", INITIAL_INFECTED, INITIAL_INFECTED.default
         ),
         "catalog": [
-            _describe_disease(name, disease, enabled=name in library.default.diseases)
+            _describe_disease(name, disease)
             for name, disease in library.catalog.items()
         ],
         "interactions": [interaction.to_definition() for interaction in library.interactions],
         "effects": EFFECTS,
         "age_groups": _describe_age_groups(library.town.population),
         "limits": {
-            "max_diseases": library.limits.max_diseases,
             "name_pattern": DISEASE_NAME_PATTERN.pattern,
         },
     }
@@ -88,12 +87,11 @@ def describe_preview(config: ExperimentConfig, town: TownParameters) -> dict:
     }
 
 
-def _describe_disease(name: str, disease: DiseaseConfig, enabled: bool) -> dict:
+def _describe_disease(name: str, disease: DiseaseConfig) -> dict:
     specs = DISEASE_MODELS[disease.model].PARAMETERS
     return {
         "name": name,
         "model": disease.model,
-        "enabled": enabled,
         "initial_infected": disease.initial_infected,
         "states": _describe_states(DISEASE_MODELS[disease.model]),
         "parameters": [
@@ -119,8 +117,19 @@ def _describe_age_groups(population) -> dict:
 
 
 def _describe_states(model_class) -> list[dict]:
+    """The states with their colors.
+
+    `in_course` marks the states a person passes through when ill and `exposable` those an
+    infection can start from, so that the arena can tell a new infection from any other move.
+    """
     return [
-        {"name": state, "color": color, "infectious": state in model_class.INFECTIOUS_STATES}
+        {
+            "name": state,
+            "color": color,
+            "infectious": state in model_class.INFECTIOUS_STATES,
+            "in_course": state in model_class.course_states(),
+            "exposable": state in model_class.exposable_states(),
+        }
         for state, color in model_class.STATE_COLORS.items()
     ]
 

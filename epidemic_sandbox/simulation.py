@@ -146,7 +146,7 @@ class Simulation:
 
     def _preview(self, definition: Mapping) -> dict:
         try:
-            config = self.library.parse(definition)
+            config = self.library.parse(definition, allow_no_diseases=True)
         except (ValueError, KeyError, TypeError) as error:
             return {"type": "preview", "error": str(error)}
         return {"type": "preview", **describe_preview(config, self.library.town)}

@@ -35,7 +35,7 @@ class SirModel(DiseaseModelAbstract):
     INFECTIOUS_STATES = frozenset({INFECTIOUS})
     INFECTION_ENTRY_STATE = INFECTIOUS
     INITIAL_CASE_STATE = INFECTIOUS
-    IMMUNE_STATE = RECOVERED
+    PROTECTION = {RECOVERED: "immunity_protection"}
     PHASES = {
         INFECTIOUS: Phase(RECOVERED, "infectious_days", fatal=True),
         RECOVERED: Phase(SUSCEPTIBLE, "immunity_days"),

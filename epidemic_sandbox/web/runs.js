@@ -1,5 +1,5 @@
 import { Arena } from "./arena.js";
-import { DISEASE_COLORS } from "./charts.js";
+import { diseaseColor } from "./charts.js";
 import { element } from "./fields.js";
 import { basicPerson, renderPerson } from "./person.js";
 import { LiveStatistics } from "./sidebar.js";
@@ -79,7 +79,7 @@ export class RunsView {
     const rows = this.run.diseases.map((disease, position) => {
       const row = element("span", "tile__row");
       const swatch = element("span", "disease__swatch");
-      swatch.style.background = DISEASE_COLORS[position % DISEASE_COLORS.length];
+      swatch.style.background = diseaseColor(position);
       const text = element("span", "tile__text");
       row.append(swatch, element("span", "tile__name", disease.name), text);
       return { row, text, disease };
@@ -149,6 +149,7 @@ export class RunsView {
     }
     const changed = !this.hovered || this.hovered.person !== person;
     this.hovered = { person };
+    this.pointer = event;
     if (changed) {
       this.household = this.info.get(`${this.selected}:${person}`)?.household.members.map((member) => member.id) ?? [];
       this.renderTooltip();
@@ -182,6 +183,7 @@ export class RunsView {
     if (this.hovered && this.selected === info.run && this.hovered.person === info.id) {
       this.household = info.household.members.map((member) => member.id);
       this.renderTooltip();
+      this.placeTooltip(this.pointer);
       this.highlight();
     }
   }

@@ -137,13 +137,14 @@ class ExperimentLibrary:
     limits: LimitsConfig
     steps_per_day: int = STEPS_PER_DAY
 
-    def parse(self, definition: Mapping) -> ExperimentConfig:
+    def parse(self, definition: Mapping, *, allow_no_diseases: bool = False) -> ExperimentConfig:
         """Build a validated experiment.
 
         `definition` is {"world": {name: value}, "diseases": {disease: {"initial_infected": n}}}:
         the diseases come from the catalog, with the interactions that connect the chosen ones.
         A disease with a "model" and "parameters" of its own is used as given instead, and an
-        "interactions" list replaces the catalog's.
+        "interactions" list replaces the catalog's. An experiment without diseases is only
+        accepted for a preview of the town (`allow_no_diseases`).
         """
         world = resolve_parameters(WORLD_PARAMETERS, _object(definition, "experiment")["world"])
         world["arena_size"] = math.sqrt(world["arena_area"])  # the side, which the simulation uses
@@ -158,8 +159,8 @@ class ExperimentLibrary:
             name: self._disease(name, _object(values, name))
             for name, values in _object(definition["diseases"], "diseases").items()
         }
-        if not 1 <= len(diseases) <= self.limits.max_diseases:
-            raise ValueError(f"An experiment needs 1 to {self.limits.max_diseases} diseases")
+        if not diseases and not allow_no_diseases:
+            raise ValueError("An experiment needs at least one disease")
         for name, disease in diseases.items():
             if not DISEASE_NAME_PATTERN.fullmatch(name):
                 raise ValueError(f"Disease name '{name}' must match {DISEASE_NAME_PATTERN.pattern}")

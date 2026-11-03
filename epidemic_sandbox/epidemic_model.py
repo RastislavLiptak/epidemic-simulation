@@ -258,8 +258,7 @@ class EpidemicModel:
         """Infectiousness of everybody for `disease`: 0 if not infectious, 1 if fully, or scaled."""
         disease_state = self.disease_states[disease]
         weights = (
-            self.diseases[disease].infectious_mask(disease_state).astype(np.float32)
-            * disease_state.infectiousness
+            self.diseases[disease].infectious_weight(disease_state) * disease_state.infectiousness
         )
         for interaction, source_states in self.interactions:
             if interaction.target == disease and interaction.effect == "infectiousness":

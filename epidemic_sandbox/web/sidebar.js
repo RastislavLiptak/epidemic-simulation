@@ -4,7 +4,7 @@ import {
   buildStackedChart,
   chartedStates,
   dailyPoints,
-  DISEASE_COLORS,
+  diseaseColor,
   fillRunsChart,
   visibleColor,
 } from "./charts.js";
@@ -51,7 +51,7 @@ export class LiveStatistics {
     const card = element("article", "card");
     const head = element("header", "stat__head");
     const swatch = element("span", "disease__swatch");
-    swatch.style.background = DISEASE_COLORS[index % DISEASE_COLORS.length];
+    swatch.style.background = diseaseColor(index);
     head.append(swatch, element("h2", "card__title", disease.name), element("span", "badge", disease.model));
 
     const counts = element("ul", "counts");

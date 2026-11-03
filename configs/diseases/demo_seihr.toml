@@ -1,0 +1,75 @@
+# Fictional disease with a hospital stage (SEIHR), modelled on COVID-19 in spring 2020, before
+# vaccines and treatment, with the severity of the Imperial College model:
+#   Ferguson et al. 2020, Report 9 (DOI 10.25561/77482), Table 1, from Verity et al. 2020,
+#   Lancet Infect Dis 20:669-677. Hospitalised people are isolated and do not infect; nobody dies
+#   outside hospital, so the infection fatality ratio is the hospitalised share times the chance
+#   to die in hospital. Hospital capacity and infections in hospital are not modelled.
+# Reasons for the numbers: Source (published), Derived (computed from published figures), Fitted
+# (chosen so that a result matches a published figure), Assumption (no source found).
+model = "seihr"
+initial_infected = 15
+
+[parameters]
+# Fitted: in the default town (3,000 people) the early growth of the epidemic implies an effective
+#   reproduction number of 2.2 (standard error 0.1, 12 runs of 200 days with the values below; from
+#   the early growth rate by the formula of Wallinga and Lipsitch 2007 for gamma distributed
+#   stays), close to the R0 of Ferguson et al. 2020, Report 9 (2.4, range 2.0-2.6). The
+#   mean-field R0 shown in the preview is far higher, because contacts in households and
+#   workplaces are shared and the ill stay away (stay_home, limit_outings).
+transmission = 0.55
+# Assumption: no source; 3 m reaches the people in the same room, and gives about 2 contacts a
+#   person in the default town.
+contact_distance = 3.0
+# Source: incubation period 5.1 days (Lauer et al. 2020, Ann Intern Med 172:577) less the half day
+#   before symptoms in which people already infect (Ferguson et al. 2020, Report 9).
+incubation_days = 4.6
+# Source: half a day before symptoms plus a mean delay of 5 days from symptoms to hospital admission
+#   (Ferguson et al. 2020, Report 9; 5.6 days in 14,618 Belgian patients, Faes et al. 2020, Int J
+#   Environ Res Public Health 17:7560). The same for those who recover at home, as the model has
+#   one infectious period.
+infectious_days = 5.5
+# Source: mean hospital stay 10.4 days (Ferguson et al. 2020, Report 9); mean 11.0 days in Belgium
+#   (Faes et al. 2020). The same for those who die.
+hospital_days = 10.4
+# Assumption: one regularity for all stays; the incubation period is fairly regular (shape about 5),
+#   the stay in hospital is scattered (shape about 1), 3 lies between.
+duration_shape = 3.0
+# Derived: share of the infected admitted to hospital, Ferguson et al. 2020 Table 1 averaged over
+#   the Czech age structure of 2019 (8.1 %, data/reference); the age profile is in [age_effects].
+#   The column of Table 1 is headed "% symptomatic cases", but the text of Report 9 applies it to
+#   infections ("4.4 % of infections hospitalised", with an IFR of 0.9 %, i.e. 20 % die in hospital),
+#   and so does this model.
+hospitalised = 0.08
+# Derived: infection fatality ratio divided by the hospitalised share for each age group of
+#   Ferguson et al. 2020 Table 1 (2 % of the hospitalised under 20, 34 % from 80), averaged over
+#   those who are hospitalised in the Czech age structure (15 %; GB overall 0.9 / 4.4 = 20 %).
+fatality = 0.15
+# Source: Ferguson et al. 2020, Report 9, assume that the recovered are immune to reinfection "in the
+#   short term", which covers the one wave simulated here.
+# Assumption: complete protection. With the 84 % lower risk of reinfection measured in health
+#   workers (Hall et al. 2021, Lancet 397:1459) the town re-infects about half of its people within
+#   200 days, because the force of infection in a wave is far above that of the cohort, and the
+#   repeated hospital stays inflate the hospital numbers by about a third.
+immunity_days = 36500
+immunity_protection = 1.0
+# Assumption: no source for a sandbox town. Ferguson et al. 2020 assume that two thirds of cases
+#   self-isolate within a day of symptoms if told to; here nobody is told, so less.
+stay_home = 0.2
+limit_outings = 0.3
+# Assumption: the same variation between people as in the other demo diseases.
+susceptibility_cv = 0.3
+# Source: individual infectiousness gamma distributed with shape 0.25 (Ferguson et al. 2020,
+#   Report 9).
+infectiousness_dispersion = 0.25
+
+[age_effects]
+# Source: people under 20 are about half as susceptible as adults (Davies et al. 2020, Nat Med
+#   26:1205).
+susceptibility = [[0, 20, 0.5], [20, 120, 1.0]]
+# Derived: share admitted to hospital by age, Ferguson et al. 2020 Table 1 (0.1, 0.3, 1.2, 3.2, 4.9,
+#   10.2, 16.6, 24.3 and 27.3 % for the decades 0-9 ... 80+), divided by the base value 8 %.
+branching = [[0, 10, 0.0125], [10, 20, 0.0375], [20, 30, 0.15], [30, 40, 0.4], [40, 50, 0.6125], [50, 60, 1.275], [60, 70, 2.075], [70, 80, 3.0375], [80, 120, 3.4125]]
+# Derived: chance to die in hospital by age, infection fatality ratio / share hospitalised in
+#   Ferguson et al. 2020 Table 1 (2.0, 2.0, 2.5, 2.5, 3.1, 5.9, 13.3, 21.0 and 34.1 %), divided by
+#   the base value 15 %. The fatality of an age group in the whole infection is then Table 1's.
+fatality = [[0, 10, 0.133], [10, 20, 0.133], [20, 30, 0.167], [30, 40, 0.167], [40, 50, 0.204], [50, 60, 0.392], [60, 70, 0.884], [70, 80, 1.399], [80, 120, 2.271]]

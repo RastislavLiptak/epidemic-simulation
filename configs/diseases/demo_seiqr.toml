@@ -1,0 +1,56 @@
+# Fictional disease loosely based on SARS (2003): a respiratory infection that spreads once it causes
+# symptoms, so cases can be found and isolated at home (SEIQR). Detected people are confined; the rest carry on.
+model = "seiqr"
+initial_infected = 15
+
+[parameters]
+# Fitted: with these two, the free (undetected) spread in the town gives about 2.9 new infections per
+#   case, the SARS reproduction number before control (about 3: Lipsitch et al. 2003, Science 300:1966;
+#   Wallinga and Teunis 2004, Am J Epidemiol 160:509). The town reduces the effect of a high transmission
+#   (people in a household or workplace are infected only once), so it is high for a droplet disease.
+transmission = 0.8
+# Assumption: droplets and close contact, as in demo_seir; no measured distance.
+contact_distance = 4.0
+# Source: mean incubation period 4.6 days (Leung et al. 2004, Ann Intern Med 141:662, 1,755 Hong Kong
+#   patients); 6.4 days in Donnelly et al. 2003, Lancet 361:1761. Infectiousness began with the symptoms.
+incubation_days = 4.6
+# Source: mean time from onset to hospital admission, 3 to 5 days (Donnelly et al. 2003); 3.43 days is the
+#   value Hellewell et al. 2020 (Lancet Glob Health 8:e488) took from the SARS data for a short delay.
+detection_delay_days = 3.4
+# Derived: the natural infectious period is 10.8 days. With constant infectiousness from onset the mean
+#   generation interval is the incubation period plus half of the infectious period, so the infectious
+#   period is 2 x (10.0 - 4.6), using the mean generation interval of 10.0 days (SD 2.8) of the Singapore
+#   cases with onset before 12 March 2003, the date of the first WHO alert, as quoted by Wallinga and Teunis
+#   2004 (Appendix 2); the whole Singapore outbreak had 8.4 days, and 8.2 days after that date.
+#   Minus the 3.4 days of the delay: 7.4.
+undetected_days = 7.4
+# Assumption: isolation lasts until the infection would have ended, as in Chowell et al. 2003, J Theor Biol
+#   224:1 (their constraint 1/gamma2 = 1/gamma1 - 1/alpha), so it equals the undetected period.
+quarantine_days = 7.4
+# Assumption: most SARS cases met the case definition, but not all were found in time. No measured value.
+detection_coverage = 0.8
+# Assumption: the household was still exposed, which the town models itself; on top of it, a share of
+#   the spread is prevented by masks, separate rooms and hospital care. Chowell et al. 2003 fitted 0.38 to
+#   Hong Kong SARS (0.40 Singapore) for isolation in total, which already includes the contacts lost.
+quarantine_infectiousness = 0.5
+# Assumption: as in demo_seir; stays are neither exponential nor fixed.
+duration_shape = 4.0
+# Source: WHO, 7 May 2003, fatality below 1 % up to 24 years, 6 % at 25 to 44, 15 % at 45 to 64, over 50 %
+#   from 65 (age effects below); 0.10 is the base value they are scaled from.
+fatality = 0.10
+# Assumption: SARS gave no known lasting or lost immunity.
+immunity_days = 36500
+immunity_protection = 1.0
+# Assumption: as in demo_seir; undetected people (many were ill enough to stay in) partly keep to
+#   themselves. Detected people are always at home.
+stay_home = 0.3
+limit_outings = 0.4
+# Assumption: as in demo_seir.
+susceptibility_cv = 0.3
+# Source: dispersion 0.16 of the number of people infected by one case, Singapore SARS (Lloyd-Smith et al.
+#   2005, Nature 438:355); a few superspreaders caused most infections.
+infectiousness_dispersion = 0.16
+
+[age_effects]
+# Source: WHO, 7 May 2003 (disease outbreak news), fatality bands as multiples of 0.10: 0.5 %, 6 %, 15 %, 50 %.
+fatality = [[0, 25, 0.05], [25, 45, 0.6], [45, 65, 1.5], [65, 120, 5.0]]

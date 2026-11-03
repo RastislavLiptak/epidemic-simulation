@@ -41,12 +41,12 @@ function peopleList(items, diseases, describe) {
 }
 
 function healthLine(diseases, disease, health) {
-  const row = line(disease, healthDot(diseases, disease, health.state), ` ${health.state}`);
-  if (health.days_left !== null) row.append(` · ${health.days_left.toFixed(1)} days left`);
-  row.append(` · susceptibility ×${health.susceptibility.toFixed(2)}`);
-  if (health.infectious) row.append(` · infectiousness ×${health.infectiousness.toFixed(2)}`);
-  if (health.fatality_risk > 0) row.append(` · fatality ${(100 * health.fatality_risk).toFixed(1)} %`);
-  return row;
+  const details = [` ${health.state}`];
+  if (health.days_left !== null) details.push(` · ${health.days_left.toFixed(1)} days left`);
+  details.push(` · susceptibility ×${health.susceptibility.toFixed(2)}`);
+  if (health.infectious) details.push(` · infectiousness ×${health.infectiousness.toFixed(2)}`);
+  if (health.fatality_risk > 0) details.push(` · fatality ${(100 * health.fatality_risk).toFixed(1)} %`);
+  return line(disease, healthDot(diseases, disease, health.state), element("span", "person__text", details.join("")));
 }
 
 /**

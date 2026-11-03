@@ -1,0 +1,67 @@
+# Fictional disease with a share of silent infections (SEIAR), loosely based on COVID-19 in 2020:
+# most infected people never fall ill badly enough to stay in, spread less, and are mostly children and
+# young adults. Reasons for the numbers: Source = published figure, Derived = computed from published
+# figures, Assumption = no source, Model = tuned for the simulated town.
+model = "seiar"
+initial_infected = 15
+
+[parameters]
+# Fitted: in the default town (3,000 people, 4 km2) an epidemic with this contact distance grows by
+#   about 0.10 per day (14 runs). With the gamma stays below that is an effective reproduction number
+#   of about 1.8 (Wallinga-Lipsitch relation), below the 2.4 that Davies et al. (2020, Nature
+#   Medicine) used for COVID-19 projections; a transmission of about 0.65 would give 2.4. The
+#   mean-field R0 shown in the UI is higher (about 4.5), because contacts in households and
+#   workplaces repeat.
+transmission = 0.5
+contact_distance = 3.0
+# Source: Davies et al. (2020, Nature Medicine), Supplementary Table 1: latent period 3.0 days with
+#   shape 4 (derived there from incubation studies), subclinical infectiousness 5 days (assumed there).
+incubation_days = 3.0
+asymptomatic_days = 5.0
+# Source: the same table, 2.1 days of infectiousness before symptoms plus 2.9 days of illness. The two
+#   are one state here, so the people who will fall ill stay home from the first infectious day.
+infectious_days = 5.0
+# Model: the shape of the stays; 4 as in Davies et al. (2020), whose stays are gamma with shape 4.
+duration_shape = 4.0
+# Source: Poletti et al. (2021, JAMA Network Open): 69.0 % of 2,824 infected close contacts in Lombardy
+#   had no respiratory symptoms or fever >= 37.5 C. This is the share of people who carry on as usual,
+#   not the (smaller) share without any symptom, which is 20 % (17-25 %) in Buitrago-Garcia et al.
+#   (2020, PLoS Medicine). The age effects below scale it per age group.
+asymptomatic_share = 0.70
+# Source: Davies et al. (2020) assumed 50 %; Li et al. (2020, Science) estimated 55 % (46-62 %) for
+#   undocumented infections; Buitrago-Garcia et al. found a 0.35 (0.10-1.27) relative secondary attack
+#   rate for contacts of asymptomatic people.
+asymptomatic_infectiousness = 0.5
+# Derived: the infection fatality rate by age from Levin et al. (2020, Eur J Epidemiol), log10(IFR %) =
+#   -3.27 + 0.0524 x age, at the middle of each age group, divided by the symptomatic share of the
+#   group (Poletti et al.): 0.73 % per symptomatic case at 50 years, which the age effects scale.
+#   0.7 % is that value rounded. Nobody who stays asymptomatic dies.
+fatality = 0.007
+# Assumption: no source for how many ill people stay in; most people with a fever stay at home, but
+#   the days before symptoms are not told apart here (the ill are home from the first infectious day),
+#   so the share is kept moderate. Values as in the other demos.
+stay_home = 0.3
+limit_outings = 0.4
+# Assumption: reinfection is possible within months (waning antibodies), but a run is shorter than
+#   that, so immunity is for life as in demo_seir.
+immunity_days = 36500
+immunity_protection = 1.0
+# Model: the default spread of how easily people catch it.
+susceptibility_cv = 0.3
+# Assumption: Endo et al. (2020, Wellcome Open Research) found strong overdispersion of COVID-19
+#   transmission (k about 0.1 for the number of secondary cases); the town's own contact differences
+#   already make part of it, so the infectiousness trait gets a milder 0.4.
+infectiousness_dispersion = 0.4
+
+[age_effects]
+# Source: under 20s are about half as susceptible as adults, Davies et al. (2020, Nature Medicine).
+susceptibility = [[0, 20, 0.5], [20, 120, 1.0]]
+# Derived: the symptomatic share by age group in Poletti et al. (2021) is 18.1 %, 22.4 %, 30.5 %,
+#   35.5 % and 64.6 % for 0-19, 20-39, 40-59, 60-79 and 80+ (Davies et al.: 21 % at 10-19 and 69 % at
+#   70+); the asymptomatic share (1 - these) divided by the base 0.70 gives the multipliers, which keep
+#   every chance below 1 (the largest is 0.82).
+branching = [[0, 20, 1.17], [20, 40, 1.11], [40, 60, 0.99], [60, 80, 0.92], [80, 120, 0.51]]
+# Derived: the fatality per symptomatic case at the middle of each age group (10, 30, 50, 70, 85
+#   years) from the IFR of Levin et al. and the symptomatic shares above: 0.0099 %, 0.089 %, 0.73 %,
+#   7.1 % and 23.7 %, divided by the base 0.7 %.
+fatality = [[0, 20, 0.014], [20, 40, 0.13], [40, 60, 1.05], [60, 80, 10.1], [80, 120, 33.8]]

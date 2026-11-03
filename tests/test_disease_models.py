@@ -2,8 +2,9 @@ import math
 
 import numpy as np
 import pytest
+from disease_helpers import ONE_DAY, SURE, UNIFORM, advance, new_state, place, state_names
 
-from epidemic_sandbox.disease_models import DISEASE_MODELS, SeirModel, SirModel, SisModel
+from epidemic_sandbox.disease_models import DISEASE_MODELS
 from epidemic_sandbox.disease_models.disease_model_abstract import (
     EXPOSED,
     INFECTIOUS,
@@ -12,26 +13,9 @@ from epidemic_sandbox.disease_models.disease_model_abstract import (
     DiseaseModelAbstract,
     Phase,
 )
-
-ONE_DAY = 1.0
-SURE = {"transmission": 1.0}
-UNIFORM = {"susceptibility_cv": 0.0}
-ADULT = 40
-
-
-def new_state(model, population=1, cases=(), age=ADULT):
-    rng = np.random.default_rng(0)
-    ages = np.full(population, age) if np.isscalar(age) else np.asarray(age)
-    return model.create_state(population, np.array(cases, dtype=int), rng, ages), rng
-
-
-def advance(model, disease_state, rng, exposure=0.0):
-    model.advance(disease_state, np.full(len(disease_state.state), exposure, np.float32), rng)
-
-
-def state_names(model, disease_state):
-    names = list(model.STATE_COLORS)
-    return [names[index] for index in disease_state.state]
+from epidemic_sandbox.disease_models.seir import SeirModel
+from epidemic_sandbox.disease_models.sir import SirModel
+from epidemic_sandbox.disease_models.sis import SisModel
 
 
 def test_registry_models_have_consistent_definitions():
@@ -370,3 +354,41 @@ def test_deaths_of_the_disease_are_counted():
     disease_state, rng = new_state(model, population=300, cases=np.arange(300))
     finish_infection(model, disease_state, rng)
     assert disease_state.deaths == 300
+
+
+@pytest.mark.parametrize("shape", [1.0, 2.0])
+def test_lifelong_immunity_never_wanes_whatever_the_regularity(shape):
+    model = SirModel(ONE_DAY, duration_shape=shape)
+    disease_state, rng = new_state(model, population=100_000)
+    place(model, disease_state, rng, np.arange(100_000), RECOVERED)
+    for _ in range(1000):
+        advance(model, disease_state, rng)
+    assert (disease_state.state == list(model.STATE_COLORS).index(RECOVERED)).all()
+
+
+def test_seir_people_die_only_at_the_end_of_the_infectious_period():
+    model = SeirModel(
+        ONE_DAY, fatality=1.0, incubation_days=3.0, infectious_days=4.0, duration_shape=50.0
+    )
+    disease_state, rng = new_state(model, population=200)
+    place(model, disease_state, rng, np.arange(200), EXPOSED)
+    dead_by_day = []
+    for _ in range(12):
+        advance(model, disease_state, rng)
+        dead_by_day.append(int((disease_state.state == model.dead_index).sum()))
+    assert dead_by_day[:4] == [0] * 4, "nobody dies while exposed or early in the illness"
+    assert dead_by_day[-1] == 200
+
+
+def test_sir_deaths_happen_only_when_the_infection_ends_not_when_immunity_ends():
+    model = SirModel(
+        ONE_DAY, fatality=0.5, infectious_days=2.0, immunity_days=10.0, duration_shape=50.0
+    )
+    disease_state, rng = new_state(model, population=5000, cases=np.arange(5000))
+    for _ in range(6):
+        advance(model, disease_state, rng)
+    deaths_after_infection = disease_state.deaths
+    assert deaths_after_infection == pytest.approx(2500, abs=4 * 35)
+    for _ in range(60):
+        advance(model, disease_state, rng)
+    assert disease_state.deaths == deaths_after_infection

@@ -1,4 +1,4 @@
-import { buildAgeChart, DISEASE_COLORS } from "./charts.js";
+import { buildAgeChart, diseaseColor } from "./charts.js";
 import { setBusy } from "./busy.js";
 import { buildField, buildOptionalNumber, element, transmissionChips } from "./fields.js";
 
@@ -6,9 +6,10 @@ const DURATION = "max_days";
 const RUNS = "runs";
 const SVG = "http://www.w3.org/2000/svg";
 const GRAPH_WIDTH = 440;
-const GRAPH_HEIGHT = 250;
 const NODE_RADIUS = 16;
-const EFFECT_WORDS = { susceptibility: "susceptibility", infectiousness: "infectiousness" };
+const EDGE_BEND = 26;
+const EDGE_BEND_STEP = 24;
+const KINDS = ["protects", "promotes", "neutral"];
 
 function svg(tag, attributes = {}) {
   const node = document.createElementNS(SVG, tag);
@@ -24,6 +25,27 @@ function formatValue(value) {
   return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(4)));
 }
 
+/** Whether an interaction reduces the target disease, increases it, or (factor 1) changes nothing. */
+function interactionKind(interaction) {
+  if (interaction.factor < 1) return "protects";
+  return interaction.factor > 1 ? "promotes" : "neutral";
+}
+
+/** What happens to a person who is in the source disease's states, as the end of a sentence. */
+function describeEffect(interaction) {
+  const { factor, target, effect } = interaction;
+  const less = `${formatValue((1 - factor) * 100)} % less`;
+  const times = `${formatValue(factor)}× as`;
+  if (effect === "susceptibility") {
+    if (factor === 0) return `cannot catch ${target}`;
+    if (factor === 1) return `catch ${target} as easily as usual`;
+    return factor < 1 ? `are ${less} likely to catch ${target}` : `are ${times} likely to catch ${target}`;
+  }
+  if (factor === 0) return `do not infect anyone with ${target}`;
+  if (factor === 1) return `infect others with ${target} as much as usual`;
+  return factor < 1 ? `infect others with ${target} ${less}` : `infect others with ${target} ${times} much`;
+}
+
 /** The screen where an experiment is composed: the world, which diseases take part, how many runs. */
 export class SetupScreen {
   constructor(container, setup, handlers) {
@@ -33,8 +55,9 @@ export class SetupScreen {
     this.world = Object.fromEntries(setup.world.map((control) => [control.name, control.value]));
     this.diseases = setup.catalog.map((disease) => ({
       ...disease,
+      enabled: false,
       initialInfected: disease.initial_infected,
-      color: DISEASE_COLORS[setup.catalog.indexOf(disease) % DISEASE_COLORS.length],
+      color: diseaseColor(setup.catalog.indexOf(disease)),
     }));
     this.estimates = {};
     this.previewError = null;
@@ -211,12 +234,13 @@ export class SetupScreen {
 
   buildInteractionsCard() {
     const card = element("section", "card");
+    this.interactionsCard = card;
     card.append(
       element("h2", "card__title", "Interactions between diseases"),
       element(
         "p",
         "card__lead",
-        "While a person is in some state of one disease, another disease changes for them: below ×1 it is reduced (cross-immunity, viral interference), above ×1 it is increased (weakened defences, coinfection). Interactions are fixed in configs/experiment.toml and apply when both diseases are enabled.",
+        "While a person is in some state of one disease, another disease changes for them: below ×1 it is reduced (cross-immunity, viral interference), above ×1 it is increased (weakened defences, coinfection).",
       ),
     );
     this.graphBox = element("div", "network");
@@ -231,56 +255,84 @@ export class SetupScreen {
     return enabled.includes(interaction.source) && enabled.includes(interaction.target);
   }
 
+  /** Shown only when at least two diseases are chosen, and then only with the interactions between the chosen ones. */
   renderInteractions() {
-    const interactions = this.setup.interactions;
-    this.graphBox.replaceChildren(this.buildGraph(interactions));
-    this.interactionList.replaceChildren(
-      ...interactions.map((interaction) => {
-        const item = element(
-          "li",
-          "interaction",
-          `While ${interaction.source} is ${interaction.states.join(" or ")}: ${EFFECT_WORDS[interaction.effect]} to ${interaction.target} ×${formatValue(interaction.factor)}`,
-        );
-        item.classList.toggle("interaction--inactive", !this.isActive(interaction));
-        return item;
-      }),
-    );
-    if (!interactions.length) {
-      this.interactionList.append(element("li", "field__hint", "No interactions: the diseases spread independently."));
-    }
+    const enabled = this.enabledDiseases();
+    this.interactionsCard.hidden = enabled.length < 2;
+    if (enabled.length < 2) return;
+    const interactions = this.setup.interactions.filter((interaction) => this.isActive(interaction));
+    this.graphBox.replaceChildren(this.buildGraph(enabled, interactions));
+    this.interactionList.replaceChildren(...interactions.map((interaction) => this.buildInteraction(interaction)));
   }
 
-  /** Diseases as nodes on a circle, interactions as arrows from the disease that matters to the one it changes. */
-  buildGraph(interactions) {
-    const graph = svg("svg", { viewBox: `0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`, class: "network__svg", role: "img" });
-    graph.setAttribute("aria-label", "Diseases and their interactions");
+  diseaseTag(name) {
+    const tag = element("span", "interaction__disease");
+    const swatch = element("span", "disease__swatch");
+    swatch.style.background = this.diseases.find((disease) => disease.name === name).color;
+    tag.append(swatch, name);
+    return tag;
+  }
+
+  /** One interaction as a card: who changes whom, by how much, and in which state of the source. */
+  buildInteraction(interaction) {
+    const kind = interactionKind(interaction);
+    const item = element("li", `interaction interaction--${kind}`);
+    const head = element("div", "interaction__head");
+    const factor = element("strong", "interaction__factor", `×${formatValue(interaction.factor)}`);
+    factor.title = this.setup.effects[interaction.effect];
+    head.append(
+      this.diseaseTag(interaction.source),
+      element("span", "interaction__arrow", "→"),
+      this.diseaseTag(interaction.target),
+      factor,
+    );
+    item.append(
+      head,
+      element(
+        "p",
+        "interaction__text",
+        `People who are ${interaction.states.join(" or ")} in ${interaction.source} ${describeEffect(interaction)}.`,
+      ),
+    );
+    return item;
+  }
+
+  /** The chosen diseases as nodes on a circle, interactions as arrows from the disease that matters to the one it changes. */
+  buildGraph(diseases, interactions) {
+    const height = diseases.length === 2 ? 150 : 250;
+    const graph = svg("svg", { viewBox: `0 0 ${GRAPH_WIDTH} ${height}`, class: "network__svg", role: "img" });
+    graph.setAttribute("aria-label", "Chosen diseases and their interactions");
     const defs = svg("defs");
-    for (const [kind, color] of [["protects", "var(--good)"], ["promotes", "var(--danger)"]]) {
+    for (const kind of KINDS) {
       const marker = svg("marker", { id: `arrow-${kind}`, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
-      marker.append(svg("path", { d: "M0 0L10 5L0 10z", fill: color }));
+      marker.append(svg("path", { d: "M0 0L10 5L0 10z", class: `network__arrow network__arrow--${kind}` }));
       defs.append(marker);
     }
     graph.append(defs);
 
-    const count = this.diseases.length;
+    const count = diseases.length;
     const centerX = GRAPH_WIDTH / 2;
-    const centerY = GRAPH_HEIGHT / 2;
+    const centerY = height / 2 - 6;
     const radiusX = GRAPH_WIDTH / 2 - 70;
-    const radiusY = GRAPH_HEIGHT / 2 - 38;
+    const radiusY = height / 2 - 38;
+    const firstAngle = count === 2 ? Math.PI : -Math.PI / 2;
     const position = new Map(
-      this.diseases.map((disease, index) => {
-        const angle = (2 * Math.PI * index) / count - Math.PI / 2;
+      diseases.map((disease, index) => {
+        const angle = firstAngle + (2 * Math.PI * index) / count;
         return [disease.name, { x: centerX + radiusX * Math.cos(angle), y: centerY + radiusY * Math.sin(angle) }];
       }),
     );
 
-    interactions.forEach((interaction, index) => {
+    const drawn = new Map();
+    for (const interaction of interactions) {
       const from = position.get(interaction.source);
       const to = position.get(interaction.target);
-      if (!from || !to) return;
-      const kind = interaction.factor < 1 ? "protects" : "promotes";
+      const pair = `${interaction.source}>${interaction.target}`;
+      const parallel = drawn.get(pair) ?? 0;
+      drawn.set(pair, parallel + 1);
+      const kind = interactionKind(interaction);
       const middle = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-      const bend = 24 * (index % 2 === 0 ? 1 : -1);
+      const bend = EDGE_BEND + EDGE_BEND_STEP * parallel;
       const length = Math.hypot(to.x - from.x, to.y - from.y) || 1;
       const control = { x: middle.x - ((to.y - from.y) / length) * bend, y: middle.y + ((to.x - from.x) / length) * bend };
       const shorten = (point, other) => {
@@ -290,7 +342,6 @@ export class SetupScreen {
       const start = shorten(from, control);
       const end = shorten(to, control);
       const edge = svg("g", { class: `network__edge network__edge--${kind}` });
-      edge.classList.toggle("network__edge--inactive", !this.isActive(interaction));
       edge.append(
         svg("path", { d: `M${start.x} ${start.y} Q${control.x} ${control.y} ${end.x} ${end.y}`, "marker-end": `url(#arrow-${kind})` }),
       );
@@ -298,12 +349,11 @@ export class SetupScreen {
       label.textContent = `×${formatValue(interaction.factor)}`;
       edge.append(label);
       graph.append(edge);
-    });
+    }
 
-    for (const disease of this.diseases) {
+    for (const disease of diseases) {
       const { x, y } = position.get(disease.name);
       const node = svg("g", { class: "network__node" });
-      node.classList.toggle("network__node--inactive", !disease.enabled);
       node.append(svg("circle", { cx: x, cy: y, r: NODE_RADIUS, fill: disease.color }));
       const label = svg("text", { x, y: y + NODE_RADIUS + 13, "text-anchor": "middle" });
       label.textContent = disease.name;

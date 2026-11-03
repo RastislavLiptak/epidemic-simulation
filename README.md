@@ -38,7 +38,7 @@ To add a disease, copy a file in `configs/diseases/` and change it. To add an in
 
 ## Adding a disease model
 
-Add a class derived from `DiseaseModelAbstract` in `epidemic_sandbox/disease_models/` and register it in `disease_models/__init__.py`. A model is declared by data (parameters, states, phases), so an existing model is the best template. The UI picks up its states and parameters automatically.
+Add a module `<name>.py` to `epidemic_sandbox/disease_models/` with one class `<Name>Model` derived from `DiseaseModelAbstract`; it is found by its file name and needs no registration. A model is declared by data (parameters, states, phases), so an existing model is the best template and the docstring of `DiseaseModelAbstract` lists what can be declared. The UI picks up its states and parameters automatically. Add a demo disease for it in `configs/diseases/`; the tests that every model has to pass run for it without further work.
 
 ## Validation
 

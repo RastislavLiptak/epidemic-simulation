@@ -46,7 +46,7 @@ class SeirModel(DiseaseModelAbstract):
     INFECTIOUS_STATES = frozenset({INFECTIOUS})
     INFECTION_ENTRY_STATE = EXPOSED
     INITIAL_CASE_STATE = INFECTIOUS
-    IMMUNE_STATE = RECOVERED
+    PROTECTION = {RECOVERED: "immunity_protection"}
     PHASES = {
         EXPOSED: Phase(INFECTIOUS, "incubation_days"),
         INFECTIOUS: Phase(RECOVERED, "infectious_days", fatal=True),

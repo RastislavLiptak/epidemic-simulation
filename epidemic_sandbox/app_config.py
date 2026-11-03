@@ -33,7 +33,6 @@ class SessionConfig:
 
 @dataclass(frozen=True)
 class LimitsConfig:
-    max_diseases: int
     max_interactions: int
     max_total_people: int
 

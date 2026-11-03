@@ -9,23 +9,24 @@ from config_factory import (
     interaction,
 )
 
+from epidemic_sandbox.disease_models.disease_model_abstract import AGE_EFFECTS
 from epidemic_sandbox.epidemic_model import EpidemicModel
 from epidemic_sandbox.schema import describe_preview, describe_run, describe_setup, describe_ui
 
 
 def definition_from_setup(setup: dict) -> dict:
-    """What the UI sends when the user just presses "start" on the untouched setup screen."""
+    """What the UI sends once the user has enabled the diseases of the default experiment."""
     return {
         "world": {control["name"]: control["value"] for control in setup["world"]},
         "diseases": {
             disease["name"]: {"initial_infected": disease["initial_infected"]}
             for disease in setup["catalog"]
-            if disease["enabled"]
+            if disease["name"] in LIBRARY.default.diseases
         },
     }
 
 
-def test_untouched_setup_reproduces_the_default_experiment():
+def test_setup_with_default_diseases_enabled_reproduces_the_default_experiment():
     config = LIBRARY.parse(definition_from_setup(describe_setup(LIBRARY)))
     assert config == LIBRARY.default
 
@@ -64,14 +65,16 @@ def test_setup_lists_the_catalog_with_read_only_parameters_and_the_fixed_interac
         "dead",
     ]
     assert [state["infectious"] for state in seir["states"]] == [False, False, True, False, False]
+    assert [state["in_course"] for state in seir["states"]] == [False, True, True, True, False]
+    assert [state["exposable"] for state in seir["states"]] == [True, False, False, True, False]
     assert {"transmission", "contact_distance", "fatality"} <= {
         parameter["name"] for parameter in seir["parameters"]
     }
     for parameter in seir["parameters"]:
         assert parameter["label"] and parameter["description"] and "value" in parameter
         assert "min" not in parameter, "parameters are shown, not edited"
-    assert set(seir["age_effects"]) <= {"susceptibility", "fatality"}
-    assert setup["limits"]["max_diseases"] == APP_CONFIG.limits.max_diseases
+    assert set(seir["age_effects"]) <= set(AGE_EFFECTS)
+    assert set(setup["limits"]) == {"name_pattern"}
     assert set(setup["effects"]) == {"susceptibility", "infectiousness"}
     assert len(setup["interactions"]) == 2 and setup["interactions"][0]["states"] == ["recovered"]
 

@@ -4,7 +4,7 @@ import {
   buildStackedChart,
   chartedStates,
   dailyPoints,
-  DISEASE_COLORS,
+  diseaseColor,
   fillRunsChart,
 } from "./charts.js";
 import { element } from "./fields.js";
@@ -63,7 +63,7 @@ export class ResultsView {
   }
 
   buildDisease(history, disease, index) {
-    const color = DISEASE_COLORS[index % DISEASE_COLORS.length];
+    const color = diseaseColor(index);
     const card = element("section", "card");
     const title = element("header", "stat__head");
     const swatch = element("span", "disease__swatch");

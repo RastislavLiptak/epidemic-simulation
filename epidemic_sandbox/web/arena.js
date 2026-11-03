@@ -159,7 +159,11 @@ export class Arena {
       const before = this.current.states[disease.name];
       const after = frame.states[disease.name];
       for (let person = 0; person < after.length; person++) {
-        if (before[person] === 0 && after[person] !== 0) {
+        if (
+          before[person] !== after[person] &&
+          disease.states[before[person]].exposable &&
+          disease.states[after[person]].in_course
+        ) {
           this.flashes.set(`${disease.name}:${person}`, {
             person,
             since: now,

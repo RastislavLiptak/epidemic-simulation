@@ -1,0 +1,64 @@
+# Fictional respiratory disease that spreads before symptoms (SEPIR), loosely based on COVID-19
+# (SARS-CoV-2, original strain, 2020). Tags: Source = a published number, Derived = computed from
+# sources, Fitted = tuned in the model, Assumption = no source, Model = a modelling convention.
+model = "sepir"
+initial_infected = 15
+
+[parameters]
+# Fitted: in this town (3,000 people, contact distance 3 m) the epidemic grows as fast as early
+# COVID-19: the reproduction number implied by the measured growth is about 2.3 (8 runs), against
+# R0 2.2 (Li et al. 2020, NEJM) and 2.0 (Ferretti et al. 2020, Science). The mean-field R0 of the
+# preview is higher because it ignores that contacts in households and workplaces are shared.
+transmission = 0.4
+# Assumption: droplet and close-range spread; the same distance as in the SIR and SIS demos.
+contact_distance = 3.0
+# Derived: incubation period (latent + presymptomatic) = 5.5 days, the mean of Ferretti et al.
+# 2020 (lognormal, median 5.2 days; Lauer et al. 2020, Ann Intern Med: median 5.1 days).
+latent_days = 3.0
+# Source: infectiousness begins 2.3 days (95% CI 0.8-3.0) before symptom onset (He et al. 2020,
+# Nature Medicine; 2.5 days in the preprint). Rounded to the 0.5-day step of the setting.
+presymptomatic_days = 2.5
+# Derived: with the presymptomatic stage at the same daily infectiousness it gives a share of
+# transmission before symptoms theta = 2.5 / (2.5 + 3.0) = 45 %, the estimate of He et al. 2020
+# (44 %, CI 25-69 %), Ferretti et al. 2020 (47 % of R0) and Ganyani et al. 2020 (48 %, Singapore;
+# 62 % in Tianjin). Real infectiousness after onset lasts longer but decays quickly, so this is the
+# time at the full daily rate that carries the same transmission.
+infectious_days = 3.0
+# Assumption: the same as after symptoms begin; the viral load peaks about 0.7 days before onset
+# (He et al. 2020), but how infectiousness depends on it is not measured (Tsang et al. 2015 found
+# it grows much more slowly than viral load for influenza).
+presymptomatic_infectiousness = 1.0
+duration_shape = 4.0
+# Derived: the infection fatality of Levin et al. 2020 (Eur J Epidemiol 35:1123; 0.01 % at 25
+# years, 0.4 % at 55, 1.4 % at 65, 4.6 % at 75, 15 % at 85) interpolated log-linearly, held at its
+# value at 85 above that age (Assumption), and averaged
+# over the ages of the town: 1.2 %. The age effects below are the averages of each age range
+# relative to it. Death happens at the end of the symptomatic period, a simplification.
+fatality = 0.0116
+# Model: complete protection while immune. Reinfection studies measure the protection from 90 days
+# after the first infection on (Hansen et al. 2021, Lancet 397:1204, Denmark: 80.5 %, 95% CI
+# 75.4-84.4; Hall et al. 2021, Lancet 397:1459: 84 %), and a repeat infection within a few weeks is
+# very rare. A protection of 0.8 from the day of recovery would have each person in the town
+# infected 1.9 times during the first wave (measured), mostly by their own household.
+immunity_protection = 1.0
+# Assumption: both studies saw protection for at least 6-7 months; how long it lasts is not known
+# (a wave of this town is over within 120 days, so the value only matters for longer runs).
+immunity_days = 365
+# Source: Smith et al. 2020 (CORSAIR, UK surveys): 18.2 % (16.4-19.9) of people with symptoms
+# stayed at home as required.
+stay_home = 0.2
+# Assumption: no source; the same as the other demos.
+limit_outings = 0.4
+# Assumption: no source; the same as the other demos.
+susceptibility_cv = 0.3
+# Source: Adam et al. 2020, Nature Medicine (Hong Kong): dispersion k = 0.43 (95% CI 0.29-0.67),
+# about a fifth of the cases cause 80 % of the transmission (Endo et al. 2020 find k = 0.1).
+infectiousness_dispersion = 0.43
+
+[age_effects]
+# Source: children and adolescents are about half as susceptible as adults (odds ratio of being an
+# infected contact 0.56, 95% CI 0.37-0.85; Viner et al. 2021, JAMA Pediatrics; Davies et al. 2020,
+# Nature Medicine).
+susceptibility = [[0, 20, 0.56], [20, 120, 1.0]]
+# Derived: from the infection fatality by age of Levin et al. 2020 (see fatality above).
+fatality = [[0, 20, 0.002], [20, 50, 0.05], [50, 65, 0.5], [65, 80, 2.7], [80, 120, 10.8]]

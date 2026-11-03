@@ -208,7 +208,7 @@ def _health(model: EpidemicModel, person: int) -> dict:
     for name, disease in model.diseases.items():
         disease_state = model.disease_states[name]
         state = list(disease.STATE_COLORS)[disease_state.state[person]]
-        timed = state in disease.PHASES
+        timed = state in disease.PHASES and not disease.lasts_for_life(state)
         health[name] = {
             "model": type(disease).__name__.removesuffix("Model").upper(),
             "state": state,
@@ -216,10 +216,14 @@ def _health(model: EpidemicModel, person: int) -> dict:
             "infectious": state in disease.INFECTIOUS_STATES,
             "ever_infected": bool(disease_state.ever_infected[person]),
             "susceptibility": float(
-                disease_state.susceptibility[person] * factors[name]["susceptibility"]
+                disease_state.susceptibility[person]
+                * factors[name]["susceptibility"]
+                * (1.0 - disease.protection_of(state))
             ),
             "infectiousness": float(
-                disease_state.infectiousness[person] * factors[name]["infectiousness"]
+                disease_state.infectiousness[person]
+                * disease.state_infectiousness(state)
+                * factors[name]["infectiousness"]
             ),
             "fatality_risk": float(disease_state.fatality_risk[person]),
         }

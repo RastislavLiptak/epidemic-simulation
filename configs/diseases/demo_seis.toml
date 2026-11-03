@@ -1,0 +1,46 @@
+# Fictional bacterial throat infection with an incubation period and no lasting immunity (SEIS),
+# loosely based on streptococcal pharyngitis ("strep throat", group A Streptococcus): people catch
+# it again and again, so it settles at an endemic level. Real numbers are cited where they exist;
+# the others are marked as assumptions.
+model = "seis"
+initial_infected = 30
+
+[parameters]
+# Fitted: no source gives a per-contact chance for strep throat. 0.2 is the lowest round value at
+# which the infection persisted over 400 days in every one of 6 seeds of the default town (it
+# settles after 4 to 5 months at about 13% infectious and 7% exposed; 0.1 died out in 3 of 6).
+transmission = 0.2
+# Assumption: droplet spread at close contact (CDC clinical guidance), so the usual 2 m.
+contact_distance = 2.0
+# Source: the incubation period of group A strep pharyngitis is about 2 to 5 days (CDC clinical
+# guidance); the middle of the range, used as the latent period (no source separates the latent
+# period from the incubation period).
+incubation_days = 3.5
+# Assumption: untreated illness can last 7 to 10 days and treatment ends infectiousness within
+# 12 to 24 hours (CDC), so 7 days as a mix of the two. Nobody measured this.
+infectious_days = 7.0
+# Model: moderately regular stays, as in the other demo diseases.
+duration_shape = 4.0
+# Derived, roughly: about 0.45 deaths per 100,000 a year from invasive group A strep (CDC ABCs
+# surveillance, 2009-2011) divided by about 9,500 pharyngitis cases per 100,000 a year (616
+# million cases a year, Carapetis et al. 2005, for a world population of 6.5 billion) gives 5e-5
+# per infection. Not all invasive deaths follow a throat infection and the two numbers come from
+# different populations, so this is an order of magnitude.
+fatality = 0.00005
+# Assumption: patients are advised to stay home until 12 to 24 hours on antibiotics (CDC), but
+# mild cases often carry on; the shares are guesses.
+stay_home = 0.5
+limit_outings = 0.3
+# Model: the default spread of how easily people catch it.
+susceptibility_cv = 0.3
+# Assumption: infectious people differ in how much they spread; no data for strep throat.
+infectiousness_dispersion = 0.5
+
+[age_effects]
+# Source for the pattern only: strep throat is mainly a disease of children aged 5 to 15 and
+# uncommon under 3 (IDSA guideline, Shulman et al. 2012). Assumption: the factors themselves.
+susceptibility = [[0, 3, 0.3], [3, 5, 0.7], [5, 15, 1.5], [15, 120, 1.0]]
+# Assumption: invasive group A strep kills mostly the old (deaths per 100,000 in people over 65
+# are about 4 times the all-age rate, CDC ABCs 2009-2012); strep throat is rarer in the old, so
+# the per-infection factor is set to 8, and children are rarely killed (0.2).
+fatality = [[0, 15, 0.2], [15, 65, 1.0], [65, 120, 8.0]]

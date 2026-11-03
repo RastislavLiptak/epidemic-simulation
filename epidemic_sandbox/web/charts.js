@@ -35,7 +35,12 @@ export function visibleColor(color) {
 }
 
 /** Colors that tell diseases apart in charts; the arena tells them apart by wedge position. */
-export const DISEASE_COLORS = ["#ef4444", "#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899", "#14b8a6", "#78716c", "#84cc16", "#06b6d4"];
+const DISEASE_COLORS = ["#ef4444", "#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899", "#14b8a6", "#78716c", "#84cc16", "#06b6d4"];
+
+/** The color of the disease at `index`: the palette first, then hues spread by the golden angle. */
+export function diseaseColor(index) {
+  return index < DISEASE_COLORS.length ? DISEASE_COLORS[index] : `hsl(${Math.round(index * 137.508) % 360} 65% 50%)`;
+}
 
 /** Lines of the number of infectious people over the days, one per disease. */
 export function buildInfectiousChart(canvas, diseases) {
@@ -46,8 +51,8 @@ export function buildInfectiousChart(canvas, diseases) {
       datasets: diseases.map((disease, index) => ({
         label: disease.name,
         data: [],
-        borderColor: DISEASE_COLORS[index % DISEASE_COLORS.length],
-        backgroundColor: DISEASE_COLORS[index % DISEASE_COLORS.length],
+        borderColor: diseaseColor(index),
+        backgroundColor: diseaseColor(index),
         borderWidth: 2,
         pointRadius: 0,
         tension: 0.25,

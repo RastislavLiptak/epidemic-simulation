@@ -10,6 +10,7 @@ from config_factory import (
     interaction,
 )
 
+from epidemic_sandbox.disease_models import DISEASE_MODELS
 from epidemic_sandbox.experiment_config import STEPS_PER_DAY, load_library
 
 SIR = 'model = "sir"\ninitial_infected = 1\n'
@@ -39,7 +40,7 @@ def load(path: Path):
 
 
 def test_demo_library_loads_every_model_and_the_default_interactions():
-    assert {disease.model for disease in LIBRARY.catalog.values()} == {"sir", "seir", "sis"}
+    assert {disease.model for disease in LIBRARY.catalog.values()} == DISEASE_MODELS.keys()
     assert LIBRARY.default.diseases.keys() <= LIBRARY.catalog.keys()
     assert len(LIBRARY.default.interactions) == 2
     assert LIBRARY.default.world["population"] == 3000
@@ -123,6 +124,11 @@ def test_definition_round_trips():
     assert config.interactions[0].factor == 0.4
 
 
+def test_any_number_of_diseases_can_be_chosen():
+    many = {f"d{i}": disease_definition("sir") for i in range(25)}
+    assert len(LIBRARY.parse(definition(many)).diseases) == 25
+
+
 TWO = {"a": disease_definition("sir"), "b": disease_definition("seir")}
 
 
@@ -144,8 +150,7 @@ TWO = {"a": disease_definition("sir"), "b": disease_definition("seir")}
             "within contact distance",
         ),
         ({"world": {"population": 100_000, "arena_area": 1_000_000}}, "too small"),
-        ({"diseases": {}}, "1 to 10 diseases"),
-        ({"diseases": {f"d{i}": disease_definition("sir") for i in range(11)}}, "1 to 10"),
+        ({"diseases": {}}, "at least one disease"),
         ({"diseases": {"a": disease_definition("sir", 500)}}, "exceeds the population"),
         ({"diseases": {"a": disease_definition("sir", transmission=5)}}, "out of range"),
         ({"diseases": {"a": disease_definition("sir", incubation_days=1)}}, "Unknown parameters"),
@@ -243,3 +248,10 @@ def test_parameters_of_a_catalog_disease_cannot_be_overridden():
 def test_unknown_catalog_disease_is_rejected():
     with pytest.raises(ValueError, match="Unknown disease"):
         LIBRARY.parse({"world": {}, "diseases": {"plague": {"initial_infected": 1}}})
+
+
+def test_town_preview_may_have_no_diseases_but_an_experiment_may_not():
+    definition = {"world": {}, "diseases": {}}
+    assert LIBRARY.parse(definition, allow_no_diseases=True).diseases == {}
+    with pytest.raises(ValueError, match="at least one disease"):
+        LIBRARY.parse(definition)
