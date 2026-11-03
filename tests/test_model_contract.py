@@ -34,6 +34,9 @@ from epidemic_sandbox.epidemic_model import EpidemicModel
 from epidemic_sandbox.person_info import describe_person
 from epidemic_sandbox.schema import describe_preview, describe_run, describe_setup
 
+pytestmark = pytest.mark.usefixtures("synthetic_in_registry")
+
+
 KEYS = sorted(DISEASE_MODELS)
 # The engine-level checks also run on the test-only models, which use every mechanism, so that
 # the checks themselves are exercised on branches, rates, confinement and open-ended infections.
@@ -366,7 +369,7 @@ def test_the_model_works_together_with_another_disease_and_an_interaction(key):
     deadly = {"fatality": 0.5, "transmission": 0.6}
     diseases = {
         "a": disease_definition(key, 5, **deadly),
-        "b": disease_definition("sir", 5, **deadly),
+        "b": disease_definition("plain", 5, **deadly),
     }
     interactions = [
         {

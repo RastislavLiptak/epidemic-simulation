@@ -1,6 +1,7 @@
 # Fictional mild disease without immunity (SIS), like a common cold.
 model = "sis"
 initial_infected = 30
+enabled = true
 
 [parameters]
 transmission = 0.45

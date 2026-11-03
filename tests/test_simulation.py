@@ -13,13 +13,15 @@ from config_factory import (
 
 from epidemic_sandbox.simulation import Simulation
 
+pytestmark = pytest.mark.usefixtures("synthetic_in_registry")
+
 
 def new_simulation(steps_per_day: int = TEST_STEPS_PER_DAY) -> Simulation:
     return Simulation(library_with(steps_per_day), APP_CONFIG)
 
 
 def start_command(**world) -> dict:
-    diseases = {"a": disease_definition("sir", 2), "b": disease_definition("seir", 2)}
+    diseases = {"a": disease_definition("plain", 2), "b": disease_definition("latent", 2)}
     rules = [interaction("a", ["recovered"], "b", "susceptibility", 0.5)]
     return {"type": "start", "experiment": definition(diseases, rules, **world)}
 

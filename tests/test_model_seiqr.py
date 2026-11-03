@@ -9,9 +9,11 @@ import math
 
 import numpy as np
 import pytest
+from cited_numbers import check_default_numbers, check_demo_numbers
 from config_factory import CONFIG_DIRECTORY, LIBRARY, make_model
 from disease_helpers import ONE_DAY, SURE, advance, count_in, new_state, place
 from mean_field import final_size, integrate, run_well_mixed
+from synthetic_models import LatentModel
 from test_epidemic_model import arranged_model, put_into_state, run
 
 from epidemic_sandbox.disease_models.disease_model_abstract import (
@@ -22,7 +24,6 @@ from epidemic_sandbox.disease_models.disease_model_abstract import (
     SUSCEPTIBLE,
 )
 from epidemic_sandbox.disease_models.seiqr import QUARANTINED, UNDETECTED, SeiqrModel
-from epidemic_sandbox.disease_models.seir import SeirModel
 
 IDENTICAL = {"susceptibility_cv": 0.0, "infectiousness_dispersion": 0.0}
 SHARP = {"duration_shape": 50.0}
@@ -222,7 +223,7 @@ def test_the_time_spent_free_and_isolated_is_what_the_parameters_say_and_death_f
 def test_the_natural_infectious_period_is_the_delay_plus_the_undetected_period():
     model = seiqr(detection_coverage=0.0, detection_delay_days=2.0, undetected_days=5.0)
     assert model.infectious_days() == pytest.approx(
-        SeirModel(ONE_DAY, infectious_days=7.0).infectious_days()
+        LatentModel(ONE_DAY, infectious_days=7.0).infectious_days()
     )
     assert model.pair_transmission_probability() > 0
 
@@ -442,7 +443,7 @@ def test_without_detection_the_course_has_the_final_size_of_an_seir_epidemic():
             ]
         )
 
-    seir = ever_infected(SeirModel, infectious_days=3.0, immunity_days=36500)
+    seir = ever_infected(LatentModel, infectious_days=3.0, immunity_days=36500)
     nobody = ever_infected(
         SeiqrModel,
         detection_coverage=0.0,
@@ -619,3 +620,26 @@ def test_prompt_and_tight_isolation_reduces_the_spread_in_the_town():
     # (the household is still infected before the case is found); a gap of 0.1 is far inside it
     assert min(free) > 0.8, "the free epidemic takes off in every run"
     assert max(isolated) < min(free) - 0.1
+
+
+# (values both the demo disease and the model default have, demo-only values, age effects)
+SOURCED = (
+    {  # Leung et al. 2004, Donnelly et al. 2003, Wallinga and Teunis 2004
+        "incubation_days": 4.6,
+        "detection_delay_days": 3.4,
+        "undetected_days": 7.4,
+        "quarantine_days": 7.4,
+        "detection_coverage": 0.8,
+        "quarantine_infectiousness": 0.5,
+    },
+    {"fatality": 0.1, "transmission": 0.8},
+    {"fatality": [[0, 25, 0.05], [25, 45, 0.6], [45, 65, 1.5], [65, 120, 5.0]]},  # WHO 2003
+)
+
+
+def test_the_demo_disease_has_the_numbers_its_comment_cites():
+    check_demo_numbers("seiqr", *SOURCED)
+
+
+def test_the_model_defaults_are_the_cited_numbers():
+    check_default_numbers("seiqr", SOURCED[0])

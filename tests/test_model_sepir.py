@@ -14,6 +14,7 @@ from functools import cache
 
 import numpy as np
 import pytest
+from cited_numbers import check_default_numbers, check_demo_numbers
 from config_factory import LIBRARY
 from disease_helpers import ONE_DAY, SURE, UNIFORM, advance, new_state, place, state_names
 from mean_field import final_size, integrate, run_well_mixed
@@ -584,3 +585,27 @@ MEANS_WITHOUT_LATENT = {
     "infectious_days": 3.0,
     "presymptomatic_infectiousness": W,
 }
+
+
+# (values both the demo disease and the model default have, demo-only values, age effects)
+SOURCED = (
+    {"latent_days": 3.0, "presymptomatic_days": 2.5, "infectious_days": 3.0},
+    {"fatality": 0.0116, "transmission": 0.4},  # Levin et al. 2020
+    {
+        "fatality": [
+            [0, 20, 0.002],
+            [20, 50, 0.05],
+            [50, 65, 0.5],
+            [65, 80, 2.7],
+            [80, 120, 10.8],
+        ]
+    },
+)
+
+
+def test_the_demo_disease_has_the_numbers_its_comment_cites():
+    check_demo_numbers("sepir", *SOURCED)
+
+
+def test_the_model_defaults_are_the_cited_numbers():
+    check_default_numbers("sepir", SOURCED[0])

@@ -217,21 +217,29 @@ class ExperimentLibrary:
 
 
 def load_library(experiment_path: Path, limits: LimitsConfig) -> ExperimentLibrary:
-    """Load an experiment file, the disease catalog in `diseases/` and `town.toml` next to it."""
+    """Load the world settings in an experiment file and, next to it, the rest of the library.
+
+    `diseases/` holds one file per disease (those with `enabled = true` start in the default
+    experiment), `interactions/` one file per interaction between two diseases, and `town.toml`
+    the town. Every disease and interaction is a file of its own, so that none depends on another
+    and each can be added or removed without touching the rest, except the interactions that
+    name a disease.
+    """
     with experiment_path.open("rb") as experiment_file:
         raw = tomllib.load(experiment_file)
-    enabled_names = raw.pop("diseases", [])
-    interactions = tuple(Interaction.from_definition(item) for item in raw.pop("interactions", []))
-    town = load_town_parameters(experiment_path.parent / "town.toml")
-    catalog = {
-        path.stem: _load_disease(path)
-        for path in sorted((experiment_path.parent / "diseases").glob("*.toml"))
-    }
-    missing = [name for name in enabled_names if name not in catalog]
-    if missing:
-        raise ValueError(f"{experiment_path}: diseases without a file in diseases/: {missing}")
+    directory = experiment_path.parent
+    town = load_town_parameters(directory / "town.toml")
+    catalog, enabled_names = {}, []
+    for path in sorted((directory / "diseases").glob("*.toml")):
+        catalog[path.stem], enabled = _load_disease(path)
+        if enabled:
+            enabled_names.append(path.stem)
     if not enabled_names:
-        raise ValueError(f"{experiment_path}: experiment must list at least one disease")
+        raise ValueError(f"{directory / 'diseases'}: at least one disease must set enabled = true")
+    interactions = tuple(
+        _load_interaction(path, catalog)
+        for path in sorted((directory / "interactions").glob("*.toml"))
+    )
     library = ExperimentLibrary(None, catalog, interactions, town, limits)
     default = library.parse(
         {
@@ -265,15 +273,28 @@ def _object(value, name: str) -> Mapping:
     return value
 
 
-def _load_disease(disease_path: Path) -> DiseaseConfig:
+def _load_disease(disease_path: Path) -> tuple[DiseaseConfig, bool]:
+    """The disease in a file and whether the default experiment starts with it."""
     if not DISEASE_NAME_PATTERN.fullmatch(disease_path.stem):
         raise ValueError(
             f"Disease name '{disease_path.stem}' must match {DISEASE_NAME_PATTERN.pattern}"
         )
     with disease_path.open("rb") as disease_file:
         raw = tomllib.load(disease_file)
+    enabled = raw.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise TypeError(f"{disease_path}: enabled must be true or false")
     values = {"initial_infected": raw["initial_infected"], **raw.get("parameters", {})}
-    return _disease_config(raw["model"], values, raw.get("age_effects"), disease_path)
+    return _disease_config(raw["model"], values, raw.get("age_effects"), disease_path), enabled
+
+
+def _load_interaction(path: Path, catalog: Mapping[str, DiseaseConfig]) -> Interaction:
+    with path.open("rb") as interaction_file:
+        interaction = Interaction.from_definition(tomllib.load(interaction_file))
+    missing = sorted({interaction.source, interaction.target} - catalog.keys())
+    if missing:
+        raise ValueError(f"{path}: the interaction names diseases without a file: {missing}")
+    return interaction
 
 
 def _disease_config(

@@ -20,6 +20,7 @@ from functools import cache
 
 import numpy as np
 import pytest
+from cited_numbers import check_default_numbers, check_demo_numbers
 from config_factory import disease_definition, make_model
 from disease_helpers import (
     ONE_DAY,
@@ -649,3 +650,24 @@ def test_a_vaccinated_person_who_catches_it_goes_through_infectious_to_recovered
         if (current := state_names(model, disease_state)[0]) != visited[-1]:
             visited.append(current)
     assert visited == [INFECTIOUS, RECOVERED]
+
+
+# (values both the demo disease and the model default have, demo-only values, age effects)
+SOURCED = (
+    {  # Carrat et al. 2008, Belongia et al. 2016, CDC 2010
+        "infectious_days": 4.8,
+        "vaccine_efficacy": 0.61,
+        "vaccination_rate": 0.0025,
+        "vaccine_days": 110,
+    },
+    {"initial_coverage": 0.3, "vaccination_start_day": 0},
+    {"susceptibility": [[0, 65, 1.0], [65, 120, 0.66]]},  # Hancock et al. 2009
+)
+
+
+def test_the_demo_disease_has_the_numbers_its_comment_cites():
+    check_demo_numbers("svir", *SOURCED)
+
+
+def test_the_model_defaults_are_the_cited_numbers():
+    check_default_numbers("svir", SOURCED[0])

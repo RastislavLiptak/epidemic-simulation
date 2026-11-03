@@ -1,0 +1,6 @@
+# Having had demo_svir makes people less susceptible to demo_seir (cross-immunity).
+source = "demo_svir"
+states = ["recovered"]
+target = "demo_seir"
+effect = "susceptibility"
+factor = 0.3

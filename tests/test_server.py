@@ -7,6 +7,12 @@ from starlette.testclient import TestClient
 
 from epidemic_sandbox.server import create_app
 
+# The two diseases of an interaction of the library, so that the tests can follow it into a run.
+FIRST, SECOND = LIBRARY.interactions[0].source, LIBRARY.interactions[0].target
+BETWEEN_THEM = sum(
+    1 for rule in LIBRARY.interactions if {rule.source, rule.target} == {FIRST, SECOND}
+)
+
 MAX_MESSAGES = 300
 SCRIPTS = [
     "main",
@@ -34,7 +40,7 @@ def small_experiment(**world) -> dict:
     """What the browser sends: the world settings and the diseases chosen by name."""
     return {
         "world": {"population": 200, "arena_area": 250_000, **world},
-        "diseases": {"demo_sir": {"initial_infected": 3}, "demo_seir": {"initial_infected": 2}},
+        "diseases": {FIRST: {"initial_infected": 3}, SECOND: {"initial_infected": 2}},
     }
 
 
@@ -104,14 +110,15 @@ def test_connection_starts_with_the_setup_description(client):
     with client.websocket_connect("/ws") as socket:
         hello = socket.receive_json()
     assert hello["type"] == "hello"
-    assert len(hello["setup"]["catalog"]) >= 3 and len(hello["setup"]["interactions"]) == 2
+    assert len(hello["setup"]["catalog"]) == len(LIBRARY.catalog)
+    assert len(hello["setup"]["interactions"]) == len(LIBRARY.interactions)
 
 
 def test_preview_answers_with_derived_values_or_an_error(client):
     with client.websocket_connect("/ws") as socket:
         socket.receive_json()
         socket.send_json({"type": "preview", "experiment": small_experiment()})
-        assert socket.receive_json()["diseases"]["demo_sir"]["mean_contacts"] > 0
+        assert socket.receive_json()["diseases"][FIRST]["mean_contacts"] > 0
         socket.send_json({"type": "preview", "experiment": small_experiment(population=3)})
         assert "error" in socket.receive_json()
 
@@ -120,8 +127,12 @@ def test_start_answers_with_run_description_and_first_frame(client):
     with client.websocket_connect("/ws") as socket:
         socket.receive_json()
         run, frame = start(socket, runs=2)
-    assert [d["name"] for d in run["diseases"]] == ["demo_sir", "demo_seir"]
-    assert run["population"] == 200 and len(run["interactions"]) == 1 and run["seeds"] == [42, 43]
+    assert [d["name"] for d in run["diseases"]] == [FIRST, SECOND]
+    assert (
+        run["population"] == 200
+        and len(run["interactions"]) == BETWEEN_THEM
+        and run["seeds"] == [42, 43]
+    )
     assert frame["day"] == 0 and not frame["playing"] and len(frame["runs"]) == 2
     assert "x" not in frame["runs"][0], "nobody is watched until a run is opened"
 
@@ -166,7 +177,7 @@ def test_bad_commands_report_an_error_and_keep_the_session_alive(client):
 
 def test_disease_parameters_cannot_be_sent_from_the_browser(client):
     experiment = small_experiment()
-    experiment["diseases"]["demo_sir"]["parameters"] = {"transmission": 1.0}
+    experiment["diseases"][FIRST]["parameters"] = {"transmission": 1.0}
     with client.websocket_connect("/ws") as socket:
         socket.receive_json()
         socket.send_json({"type": "start", "experiment": experiment})

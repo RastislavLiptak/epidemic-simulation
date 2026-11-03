@@ -1,0 +1,6 @@
+# Being infectious with demo_sis makes people more susceptible to demo_svir.
+source = "demo_sis"
+states = ["infectious"]
+target = "demo_svir"
+effect = "susceptibility"
+factor = 2.0

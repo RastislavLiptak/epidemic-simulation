@@ -1,6 +1,7 @@
 # Fictional disease with an incubation period and lifelong immunity (SEIR).
 model = "seir"
 initial_infected = 15
+enabled = true
 
 [parameters]
 transmission = 0.9

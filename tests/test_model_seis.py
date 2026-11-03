@@ -16,6 +16,7 @@ import pytest
 from config_factory import disease_definition
 from disease_helpers import ONE_DAY, SURE, UNIFORM, advance, new_state, place, state_names
 from mean_field import integrate, mean_course
+from synthetic_models import RepeatModel
 from test_epidemic_model import arranged_model, make_infectious, state_of
 
 from epidemic_sandbox.disease_models import DISEASE_MODELS
@@ -27,7 +28,6 @@ from epidemic_sandbox.disease_models.disease_model_abstract import (
     SUSCEPTIBLE,
 )
 from epidemic_sandbox.disease_models.seis import SeisModel
-from epidemic_sandbox.disease_models.sis import SisModel
 
 IDENTICAL = {"susceptibility_cv": 0.0, "infectiousness_dispersion": 0.0}
 POPULATION = 20_000
@@ -396,7 +396,7 @@ def test_a_latent_period_slows_the_start_but_not_the_endemic_level_of_the_infect
         **IDENTICAL,
     )
     _, sis = mean_course(
-        SisModel,
+        RepeatModel,
         runs=4,
         cases=400,
         days=100,

@@ -9,9 +9,12 @@ from config_factory import (
     interaction,
 )
 
+from epidemic_sandbox.disease_models import DISEASE_MODELS
 from epidemic_sandbox.disease_models.disease_model_abstract import AGE_EFFECTS
 from epidemic_sandbox.epidemic_model import EpidemicModel
 from epidemic_sandbox.schema import describe_preview, describe_run, describe_setup, describe_ui
+
+pytestmark = pytest.mark.usefixtures("synthetic_in_registry")
 
 
 def definition_from_setup(setup: dict) -> dict:
@@ -56,39 +59,41 @@ def test_setup_world_controls_are_only_the_ones_the_user_may_set():
 def test_setup_lists_the_catalog_with_read_only_parameters_and_the_fixed_interactions():
     setup = describe_setup(LIBRARY)
     assert {entry["name"] for entry in setup["catalog"]} == LIBRARY.catalog.keys()
-    seir = next(entry for entry in setup["catalog"] if entry["model"] == "seir")
-    assert [state["name"] for state in seir["states"]] == [
-        "susceptible",
-        "exposed",
-        "infectious",
-        "recovered",
-        "dead",
-    ]
-    assert [state["infectious"] for state in seir["states"]] == [False, False, True, False, False]
-    assert [state["in_course"] for state in seir["states"]] == [False, True, True, True, False]
-    assert [state["exposable"] for state in seir["states"]] == [True, False, False, True, False]
-    assert {"transmission", "contact_distance", "fatality"} <= {
-        parameter["name"] for parameter in seir["parameters"]
-    }
-    for parameter in seir["parameters"]:
-        assert parameter["label"] and parameter["description"] and "value" in parameter
-        assert "min" not in parameter, "parameters are shown, not edited"
-    assert set(seir["age_effects"]) <= set(AGE_EFFECTS)
+    for entry in setup["catalog"]:
+        model = DISEASE_MODELS[entry["model"]]
+        states = entry["states"]
+        assert [state["name"] for state in states] == list(model.STATE_COLORS)
+        assert [state["infectious"] for state in states] == [
+            name in model.INFECTIOUS_STATES for name in model.STATE_COLORS
+        ]
+        assert [state["in_course"] for state in states] == [
+            name in model.course_states() for name in model.STATE_COLORS
+        ]
+        assert [state["exposable"] for state in states] == [
+            name in model.exposable_states() for name in model.STATE_COLORS
+        ]
+        assert {"transmission", "contact_distance"} <= {
+            parameter["name"] for parameter in entry["parameters"]
+        }
+        for parameter in entry["parameters"]:
+            assert parameter["label"] and parameter["description"] and "value" in parameter
+            assert "min" not in parameter, "parameters are shown, not edited"
+        assert set(entry["age_effects"]) <= set(AGE_EFFECTS)
     assert set(setup["limits"]) == {"name_pattern"}
     assert set(setup["effects"]) == {"susceptibility", "infectiousness"}
-    assert len(setup["interactions"]) == 2 and setup["interactions"][0]["states"] == ["recovered"]
+    assert setup["interactions"] == [item.to_definition() for item in LIBRARY.interactions]
 
 
 def test_the_run_description_lists_diseases_interactions_and_every_run_s_people():
     config = experiment_config(
-        {"a": disease_definition("seir", 2, transmission=0.2), "b": disease_definition("sir")},
+        {"a": disease_definition("latent", 2, transmission=0.2), "b": disease_definition("plain")},
         [interaction("a", ["recovered"], "b")],
         runs=2,
     )
     models = [EpidemicModel(config, LIBRARY.town) for _ in range(2)]
     run = describe_run(config, models)
     disease = run["diseases"][0]
-    assert disease["name"] == "a" and disease["model"] == "seir"
+    assert disease["name"] == "a" and disease["model"] == "latent"
     assert [state["name"] for state in disease["states"]][-1] == "dead"
     assert run["population"] == 200 and run["interactions"][0]["target"] == "b"
     assert run["seeds"] == [config.world["seed"]] * 2
@@ -100,8 +105,8 @@ def test_the_run_description_lists_diseases_interactions_and_every_run_s_people(
 def test_preview_reports_contacts_reproduction_number_and_household_risk():
     config = experiment_config(
         {
-            "a": disease_definition("sir", transmission=0.5, infectious_days=4.0),
-            "b": disease_definition("sir", transmission=1.0),
+            "a": disease_definition("plain", transmission=0.5, infectious_days=4.0),
+            "b": disease_definition("plain", transmission=1.0),
         }
     )
     preview = describe_preview(config, LIBRARY.town)
@@ -122,8 +127,8 @@ def test_ui_constants_come_from_the_app_config_and_the_run_limit():
 def test_a_disease_with_a_larger_contact_distance_has_more_contacts():
     config = experiment_config(
         {
-            "near": disease_definition("sir", contact_distance=2.0),
-            "far": disease_definition("sir", contact_distance=6.0),
+            "near": disease_definition("plain", contact_distance=2.0),
+            "far": disease_definition("plain", contact_distance=6.0),
         }
     )
     diseases = describe_preview(config, LIBRARY.town)["diseases"]

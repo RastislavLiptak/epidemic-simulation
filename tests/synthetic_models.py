@@ -81,6 +81,72 @@ class ForkModel(DiseaseModelAbstract):
     }
 
 
+class PlainModel(DiseaseModelAbstract):
+    """Susceptible -> infectious -> recovered (immune for a time) or dead, the plainest course.
+
+    The baseline of the tests that check the base class and the town, where the course of the
+    disease should not matter.
+    """
+
+    PARAMETERS = {
+        **COMMON_PARAMETERS,
+        **IMMUNITY_PARAMETERS,
+        "infectious_days": duration("Infectious period", 7.0),
+    }
+    STATE_COLORS = {
+        SUSCEPTIBLE: "#34a853",
+        INFECTIOUS: "#ea4335",
+        RECOVERED: "#9aa0a6",
+        DEAD: "#202124",
+    }
+    INFECTIOUS_STATES = frozenset({INFECTIOUS})
+    INFECTION_ENTRY_STATE = INFECTIOUS
+    INITIAL_CASE_STATE = INFECTIOUS
+    PROTECTION = {RECOVERED: "immunity_protection"}
+    PHASES = {
+        INFECTIOUS: Phase(RECOVERED, "infectious_days", fatal=True),
+        RECOVERED: Phase(SUSCEPTIBLE, "immunity_days"),
+    }
+
+
+class LatentModel(DiseaseModelAbstract):
+    """Susceptible -> exposed -> infectious -> recovered (immune for a time) or dead."""
+
+    PARAMETERS = {
+        **COMMON_PARAMETERS,
+        **IMMUNITY_PARAMETERS,
+        "incubation_days": duration("Latent period", 3.0),
+        "infectious_days": duration("Infectious period", 6.0),
+    }
+    STATE_COLORS = {
+        SUSCEPTIBLE: "#34a853",
+        EXPOSED: "#fbbc04",
+        INFECTIOUS: "#ea4335",
+        RECOVERED: "#9aa0a6",
+        DEAD: "#202124",
+    }
+    INFECTIOUS_STATES = frozenset({INFECTIOUS})
+    INFECTION_ENTRY_STATE = EXPOSED
+    INITIAL_CASE_STATE = INFECTIOUS
+    PROTECTION = {RECOVERED: "immunity_protection"}
+    PHASES = {
+        EXPOSED: Phase(INFECTIOUS, "incubation_days"),
+        INFECTIOUS: Phase(RECOVERED, "infectious_days", fatal=True),
+        RECOVERED: Phase(SUSCEPTIBLE, "immunity_days"),
+    }
+
+
+class RepeatModel(DiseaseModelAbstract):
+    """Susceptible -> infectious -> susceptible again (no immunity), or dead."""
+
+    PARAMETERS = {**COMMON_PARAMETERS, "infectious_days": duration("Infectious period", 5.0)}
+    STATE_COLORS = {SUSCEPTIBLE: "#34a853", INFECTIOUS: "#ea4335", DEAD: "#202124"}
+    INFECTIOUS_STATES = frozenset({INFECTIOUS})
+    INFECTION_ENTRY_STATE = INFECTIOUS
+    INITIAL_CASE_STATE = INFECTIOUS
+    PHASES = {INFECTIOUS: Phase(SUSCEPTIBLE, "infectious_days", fatal=True)}
+
+
 class VaccinationModel(DiseaseModelAbstract):
     """Susceptible -> vaccinated (at a rate from a start day, or from the start) -> susceptible.
 

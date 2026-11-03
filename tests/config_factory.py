@@ -33,7 +33,7 @@ def definition(diseases: dict | None = None, interactions=(), **world) -> dict:
         world["arena_area"] = round(world.pop("arena_size") ** 2)
     return {
         "world": {**WORLD, **world},
-        "diseases": diseases or {"a": disease_definition("sir")},
+        "diseases": diseases or {"a": disease_definition("plain")},
         "interactions": list(interactions),
     }
 

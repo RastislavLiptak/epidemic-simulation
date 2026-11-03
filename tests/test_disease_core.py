@@ -20,6 +20,8 @@ from synthetic_models import (
     VACCINATED,
     ChronicModel,
     ForkModel,
+    PlainModel,
+    RepeatModel,
     VaccinationModel,
 )
 
@@ -125,10 +127,8 @@ def test_the_hospital_branch_is_confined_and_ends_in_recovery_or_death():
 
 
 def test_age_effect_on_branching_needs_a_model_with_a_branch():
-    from epidemic_sandbox.disease_models.sir import SirModel
-
     with pytest.raises(ValueError, match="branching"):
-        SirModel(ONE_DAY, age_effects={"branching": [[0, 120, 2.0]]})
+        PlainModel(ONE_DAY, age_effects={"branching": [[0, 120, 2.0]]})
 
 
 def test_age_effect_on_fatality_needs_a_model_where_somebody_can_die_of_it():
@@ -157,9 +157,7 @@ def test_states_spread_with_their_own_relative_infectiousness():
 
 
 def test_infectious_states_without_a_declared_weight_spread_fully():
-    from epidemic_sandbox.disease_models.sis import SisModel
-
-    model = SisModel(ONE_DAY)
+    model = RepeatModel(ONE_DAY)
     disease_state, _ = new_state(model, population=3, cases=[1])
     assert model.infectious_weight(disease_state).tolist() == [0.0, 1.0, 0.0]
 

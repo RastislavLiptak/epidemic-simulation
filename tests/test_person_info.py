@@ -7,11 +7,13 @@ from config_factory import disease_definition, interaction, make_model
 from epidemic_sandbox.person_info import describe_person
 from epidemic_sandbox.population import ROLES
 
+pytestmark = pytest.mark.usefixtures("synthetic_in_registry")
+
 
 def diseases(**parameters):
     return {
-        "a": disease_definition("sir", 3, transmission=0.0, infectious_days=60.0, **parameters),
-        "b": disease_definition("seir", 0),
+        "a": disease_definition("plain", 3, transmission=0.0, infectious_days=60.0, **parameters),
+        "b": disease_definition("latent", 0),
     }
 
 

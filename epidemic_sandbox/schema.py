@@ -30,10 +30,7 @@ def describe_setup(library: ExperimentLibrary) -> dict:
         "initial_infected": _describe_control(
             "initial_infected", INITIAL_INFECTED, INITIAL_INFECTED.default
         ),
-        "catalog": [
-            _describe_disease(name, disease)
-            for name, disease in library.catalog.items()
-        ],
+        "catalog": [_describe_disease(name, disease) for name, disease in library.catalog.items()],
         "interactions": [interaction.to_definition() for interaction in library.interactions],
         "effects": EFFECTS,
         "age_groups": _describe_age_groups(library.town.population),

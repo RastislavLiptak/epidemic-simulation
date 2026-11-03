@@ -12,6 +12,8 @@ from config_factory import (
     make_model,
 )
 
+pytestmark = pytest.mark.usefixtures("synthetic_in_registry")
+
 SURE = {"transmission": 1.0, "infectious_days": 60.0}
 UNIFORM = {"susceptibility_cv": 0.0}
 SPACING = 12.0
@@ -19,9 +21,9 @@ SPACING = 12.0
 
 def three_diseases() -> dict:
     return {
-        "a": disease_definition("sir", 3, transmission=0.5),
-        "b": disease_definition("seir", 3, transmission=0.5),
-        "c": disease_definition("sis", 3, transmission=0.5),
+        "a": disease_definition("plain", 3, transmission=0.5),
+        "b": disease_definition("latent", 3, transmission=0.5),
+        "c": disease_definition("repeat", 3, transmission=0.5),
     }
 
 
@@ -195,7 +197,7 @@ def test_people_move_continuously_not_in_jumps():
 
 def test_infectious_people_who_stay_home_do_not_go_to_work():
     diseases = {
-        "a": disease_definition("sir", 150, transmission=0.0, infectious_days=60, stay_home=1.0)
+        "a": disease_definition("plain", 150, transmission=0.0, infectious_days=60, stay_home=1.0)
     }
     model = make_model(diseases, arena_size=2000)
     town = model.town
@@ -211,7 +213,7 @@ def test_infectious_people_with_fewer_outings_still_work_but_skip_errands():
     def share_out(limit):
         diseases = {
             "a": disease_definition(
-                "sir", 200, transmission=0.0, infectious_days=60, limit_outings=limit
+                "plain", 200, transmission=0.0, infectious_days=60, limit_outings=limit
             )
         }
         model = make_model(diseases, population=600, arena_size=1500)
@@ -229,7 +231,7 @@ def test_infectious_people_with_fewer_outings_still_work_but_skip_errands():
 
 def test_staying_at_home_slows_the_spread():
     def attack_rate(stay_home):
-        diseases = {"a": disease_definition("sir", 30, transmission=0.3, stay_home=stay_home)}
+        diseases = {"a": disease_definition("plain", 30, transmission=0.3, stay_home=stay_home)}
         model = run(make_model(diseases, population=1500, arena_size=1500), 24 * 30)
         return model.history[-1]["ever_infected"]["a"]
 
@@ -237,7 +239,7 @@ def test_staying_at_home_slows_the_spread():
 
 
 def test_infection_spreads_only_within_contact_distance():
-    model = arranged_model({"a": disease_definition("sir", 0, **SURE)}, {1: (5, 6.5)})
+    model = arranged_model({"a": disease_definition("plain", 0, **SURE)}, {1: (5, 6.5)})
     make_infectious(model, 0, "a")
     model.step()
     assert state_of(model, 1, "a") == "infectious"
@@ -245,7 +247,7 @@ def test_infection_spreads_only_within_contact_distance():
 
 
 def test_far_people_are_not_infected():
-    model = arranged_model({"a": disease_definition("sir", 0, **SURE)}, {})
+    model = arranged_model({"a": disease_definition("plain", 0, **SURE)}, {})
     make_infectious(model, 0, "a")
     model.step()
     assert model.state_counts()["a"] == [99, 1, 0, 0]
@@ -253,8 +255,8 @@ def test_far_people_are_not_infected():
 
 def test_every_disease_has_its_own_contact_distance():
     diseases = {
-        "near": disease_definition("sir", 0, contact_distance=2.0, **SURE),
-        "far": disease_definition("sir", 0, contact_distance=6.0, **SURE),
+        "near": disease_definition("plain", 0, contact_distance=2.0, **SURE),
+        "far": disease_definition("plain", 0, contact_distance=6.0, **SURE),
     }
     model = arranged_model(diseases, {1: (5, 8.5)})
     make_infectious(model, 0, "near")
@@ -266,7 +268,7 @@ def test_every_disease_has_its_own_contact_distance():
 
 def test_step_is_synchronous():
     positions = {0: (50, 50), 1: (51.5, 50), 2: (53, 50)}
-    model = arranged_model({"a": disease_definition("sir", 0, **SURE)}, positions)
+    model = arranged_model({"a": disease_definition("plain", 0, **SURE)}, positions)
     make_infectious(model, 0, "a")
     model.step()
     assert [state_of(model, person, "a") for person in range(3)] == [
@@ -280,8 +282,8 @@ def test_step_is_synchronous():
 
 def test_diseases_spread_independently_in_the_same_people():
     diseases = {
-        "a": disease_definition("sir", 0, **SURE),
-        "b": disease_definition("sir", 0, **SURE),
+        "a": disease_definition("plain", 0, **SURE),
+        "b": disease_definition("plain", 0, **SURE),
     }
     model = arranged_model(diseases, {1: (5, 6.5)})
     make_infectious(model, 0, "a")
@@ -291,8 +293,8 @@ def test_diseases_spread_independently_in_the_same_people():
 
 def test_one_person_can_carry_several_diseases():
     diseases = {
-        "a": disease_definition("sir", 0, **SURE),
-        "b": disease_definition("seir", 0, **SURE),
+        "a": disease_definition("plain", 0, **SURE),
+        "b": disease_definition("latent", 0, **SURE),
     }
     model = arranged_model(diseases, {1: (5, 6.5)})
     make_infectious(model, 0, "a")
@@ -309,7 +311,7 @@ def test_a_more_infectious_person_infects_more_often():
             model = arranged_model(
                 {
                     "a": disease_definition(
-                        "sir", 0, transmission=0.5, infectious_days=60, **UNIFORM
+                        "plain", 0, transmission=0.5, infectious_days=60, **UNIFORM
                     )
                 },
                 {1: (5, 6.5)},
@@ -326,7 +328,7 @@ def test_a_more_infectious_person_infects_more_often():
 
 
 def test_the_dead_do_not_move_infect_or_get_infected():
-    diseases = {"a": disease_definition("sir", 0, **SURE, fatality=1.0)}
+    diseases = {"a": disease_definition("plain", 0, **SURE, fatality=1.0)}
     model = arranged_model(diseases, {1: (5, 6.5)})
     put_into_state(model, 1, "a", "dead")
     make_infectious(model, 0, "a")
@@ -341,7 +343,7 @@ def test_the_dead_do_not_move_infect_or_get_infected():
 
 def test_dead_people_stay_where_they_died():
     diseases = {
-        "a": disease_definition("sir", 600, transmission=0.0, fatality=1.0, infectious_days=1.0)
+        "a": disease_definition("plain", 600, transmission=0.0, fatality=1.0, infectious_days=1.0)
     }
     model = make_model(diseases, population=600, arena_size=1500, seed=3)
     run(model, 24 * 2)
@@ -357,7 +359,7 @@ def test_dead_people_stay_where_they_died():
 
 def test_an_epidemic_with_fatality_kills_the_expected_share():
     diseases = {
-        "a": disease_definition("sir", 300, transmission=0.0, fatality=0.3, infectious_days=3.0)
+        "a": disease_definition("plain", 300, transmission=0.0, fatality=0.3, infectious_days=3.0)
     }
     model = run(make_model(diseases, population=1500, arena_size=2000), 24 * 20)
     counts = model.state_counts()["a"]
@@ -369,7 +371,7 @@ def test_immunity_that_fades_lets_the_disease_return():
     def infections(immunity_days):
         diseases = {
             "a": disease_definition(
-                "sir", 40, transmission=0.4, infectious_days=6.0, immunity_days=immunity_days
+                "plain", 40, transmission=0.4, infectious_days=6.0, immunity_days=immunity_days
             )
         }
         record = run(make_model(diseases, population=1500, arena_size=1500), 24 * 120).history[-1]
@@ -388,7 +390,10 @@ def test_town_too_small_for_the_population_is_rejected():
 
 # --- interactions -----------------------------------------------------------------------------
 
-TWO_SURE = {"a": disease_definition("sir", 0, **SURE), "b": disease_definition("sir", 0, **SURE)}
+TWO_SURE = {
+    "a": disease_definition("plain", 0, **SURE),
+    "b": disease_definition("plain", 0, **SURE),
+}
 
 
 def spread_to_neighbour(rule, source_state, interactions_target="b", repetitions=1):
@@ -397,8 +402,10 @@ def spread_to_neighbour(rule, source_state, interactions_target="b", repetitions
     for repetition in range(repetitions):
         model = arranged_model(
             {
-                "a": disease_definition("sir", 0, **SURE),
-                "b": disease_definition("sir", 0, transmission=0.5, infectious_days=60, **UNIFORM),
+                "a": disease_definition("plain", 0, **SURE),
+                "b": disease_definition(
+                    "plain", 0, transmission=0.5, infectious_days=60, **UNIFORM
+                ),
             },
             {1: (5, 6.5)},
             [rule],
@@ -441,9 +448,9 @@ def test_infectiousness_factor_scales_how_much_a_sick_person_infects():
             rule = interaction("a", ["infectious"], "b", "infectiousness", factor)
             model = arranged_model(
                 {
-                    "a": disease_definition("sir", 0, **SURE),
+                    "a": disease_definition("plain", 0, **SURE),
                     "b": disease_definition(
-                        "sir", 0, transmission=0.5, infectious_days=60, **UNIFORM
+                        "plain", 0, transmission=0.5, infectious_days=60, **UNIFORM
                     ),
                 },
                 {1: (5, 6.5)},
@@ -462,7 +469,7 @@ def test_infectiousness_factor_scales_how_much_a_sick_person_infects():
 
 def test_infectiousness_interaction_only_acts_on_people_in_the_source_state():
     model = arranged_model(
-        {"a": disease_definition("sir", 0, **SURE), "b": disease_definition("sir", 0, **SURE)},
+        {"a": disease_definition("plain", 0, **SURE), "b": disease_definition("plain", 0, **SURE)},
         {1: (5, 6.5)},
         [interaction("a", ["infectious"], "b", "infectiousness", 0.0)],
     )
@@ -476,7 +483,7 @@ def test_several_interactions_multiply():
         interaction("a", ["infectious"], "b", "susceptibility", 0.5),
         interaction("c", ["infectious"], "b", "susceptibility", 0.2),
     ]
-    diseases = {**TWO_SURE, "c": disease_definition("sir", 0, **SURE)}
+    diseases = {**TWO_SURE, "c": disease_definition("plain", 0, **SURE)}
     model = arranged_model(diseases, {}, rules)
     put_into_state(model, 5, "a", "infectious")
     put_into_state(model, 5, "c", "infectious")
@@ -489,7 +496,7 @@ def test_several_interactions_multiply():
 def test_interactions_see_the_states_at_the_start_of_the_step():
     rule = interaction("a", ["infectious"], "b", "susceptibility", 0.0)
     model = arranged_model(
-        {"a": disease_definition("sir", 0, **SURE), "b": disease_definition("sir", 0, **SURE)},
+        {"a": disease_definition("plain", 0, **SURE), "b": disease_definition("plain", 0, **SURE)},
         {1: (5, 6.5)},
         [rule],
     )
@@ -502,8 +509,8 @@ def test_interactions_see_the_states_at_the_start_of_the_step():
 def test_cross_immunity_reduces_the_epidemic_of_the_protected_disease():
     def attack_rate(interactions):
         diseases = {
-            "a": disease_definition("sir", 40, transmission=0.4, **UNIFORM),
-            "b": disease_definition("sir", 40, transmission=0.4, **UNIFORM),
+            "a": disease_definition("plain", 40, transmission=0.4, **UNIFORM),
+            "b": disease_definition("plain", 40, transmission=0.4, **UNIFORM),
         }
         model = run(make_model(diseases, interactions, population=1500, arena_size=1500), 24 * 60)
         return model.history[-1]["ever_infected"]
@@ -516,8 +523,8 @@ def test_cross_immunity_reduces_the_epidemic_of_the_protected_disease():
 def test_interaction_effect_is_directional():
     def totals(interactions):
         diseases = {
-            "a": disease_definition("sir", 40, transmission=0.4, **UNIFORM),
-            "b": disease_definition("sir", 40, transmission=0.4, **UNIFORM),
+            "a": disease_definition("plain", 40, transmission=0.4, **UNIFORM),
+            "b": disease_definition("plain", 40, transmission=0.4, **UNIFORM),
         }
         model = run(make_model(diseases, interactions, population=1500, arena_size=1500), 24 * 60)
         return model.history[-1]["ever_infected"]
@@ -597,7 +604,7 @@ def isolated_pairs_town():
 def test_transmission_within_households_matches_the_exact_probability():
     diseases = {
         "a": disease_definition(
-            "sir", 2000, transmission=0.3, infectious_days=5.0, duration_shape=4.0, **UNIFORM
+            "plain", 2000, transmission=0.3, infectious_days=5.0, duration_shape=4.0, **UNIFORM
         )
     }
     model = make_model(
@@ -654,9 +661,9 @@ def test_a_short_outing_is_not_skipped_when_it_fits_into_one_step():
 def killing_and_harmless():
     return {
         "killer": disease_definition(
-            "sir", 0, transmission=1.0, infectious_days=1.0, fatality=1.0, duration_shape=50.0
+            "plain", 0, transmission=1.0, infectious_days=1.0, fatality=1.0, duration_shape=50.0
         ),
-        "other": disease_definition("sir", 0, transmission=1.0, infectious_days=60.0),
+        "other": disease_definition("plain", 0, transmission=1.0, infectious_days=60.0),
     }
 
 
@@ -708,7 +715,7 @@ def test_deaths_are_counted_for_the_disease_that_caused_them():
 def two_killers():
     return {
         name: disease_definition(
-            "sir", 0, transmission=1.0, infectious_days=1.0, fatality=1.0, duration_shape=50.0
+            "plain", 0, transmission=1.0, infectious_days=1.0, fatality=1.0, duration_shape=50.0
         )
         for name in ("x", "y")
     }
@@ -739,7 +746,7 @@ def test_somebody_who_dies_in_a_step_is_not_infected_by_another_disease_in_it(se
 
 def reinfection_model(protection: float):
     disease = disease_definition(
-        "sir",
+        "plain",
         0,
         transmission=1.0,
         infectious_days=60.0,

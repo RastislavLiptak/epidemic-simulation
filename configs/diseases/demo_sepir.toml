@@ -10,7 +10,7 @@ initial_infected = 15
 # R0 2.2 (Li et al. 2020, NEJM) and 2.0 (Ferretti et al. 2020, Science). The mean-field R0 of the
 # preview is higher because it ignores that contacts in households and workplaces are shared.
 transmission = 0.4
-# Assumption: droplet and close-range spread; the same distance as in the SIR and SIS demos.
+# Assumption: droplet and close-range spread; the same distance as in the SIS demo.
 contact_distance = 3.0
 # Derived: incubation period (latent + presymptomatic) = 5.5 days, the mean of Ferretti et al.
 # 2020 (lognormal, median 5.2 days; Lauer et al. 2020, Ann Intern Med: median 5.1 days).

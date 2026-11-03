@@ -12,10 +12,10 @@ from epidemic_sandbox.disease_models import DISEASE_MODELS, discover_models
 
 MODEL_FILE = textwrap.dedent(
     """
-    from epidemic_sandbox.disease_models.sir import SirModel
+    from synthetic_models import PlainModel
 
 
-    class {name}Model(SirModel):
+    class {name}Model(PlainModel):
         pass
     """
 )
@@ -41,10 +41,6 @@ def test_every_module_of_the_package_is_a_model_and_nothing_else_is():
     }
     assert set(DISEASE_MODELS) == modules
     assert list(DISEASE_MODELS) == sorted(DISEASE_MODELS)
-
-
-def test_the_original_models_are_registered():
-    assert {"sir", "seir", "sis"} <= DISEASE_MODELS.keys()
 
 
 def test_a_model_is_found_by_the_name_of_its_module(tmp_path, monkeypatch):

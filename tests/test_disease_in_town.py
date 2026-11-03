@@ -3,7 +3,14 @@
 import numpy as np
 import pytest
 from config_factory import disease_definition
-from synthetic_models import ASYMPTOMATIC, HOSPITAL, VACCINATED, ForkModel, VaccinationModel
+from synthetic_models import (
+    ASYMPTOMATIC,
+    HOSPITAL,
+    VACCINATED,
+    ForkModel,
+    PlainModel,
+    VaccinationModel,
+)
 from test_epidemic_model import arranged_model, put_into_state, run
 
 from epidemic_sandbox.disease_models import DISEASE_MODELS
@@ -15,6 +22,7 @@ from epidemic_sandbox.person_info import describe_person
 def fork_in_registry(monkeypatch):
     monkeypatch.setitem(DISEASE_MODELS, "fork", ForkModel)
     monkeypatch.setitem(DISEASE_MODELS, "vaccination", VaccinationModel)
+    monkeypatch.setitem(DISEASE_MODELS, "plain", PlainModel)
 
 
 def fork_model(**parameters):
@@ -70,7 +78,7 @@ def test_the_hover_card_shows_the_infectiousness_of_the_state_and_the_time_left(
 
 
 def test_the_hover_card_shows_no_days_left_for_a_stay_for_life():
-    model = arranged_model({"a": disease_definition("sir", 0)}, {})
+    model = arranged_model({"a": disease_definition("plain", 0)}, {})
     put_into_state(model, 1, "a", "recovered")
     put_into_state(model, 2, "a", "infectious")
     assert describe_person(model, 1)["health"]["a"]["days_left"] is None

@@ -31,10 +31,11 @@ Everything that is not code is in `configs/`; each file explains its values in c
 |------|---------|
 | `app.toml` | Server, limits and UI timing |
 | `town.toml` | The population and the town: ages, households, work and school, places, daily schedules, travel |
-| `experiment.toml` | Default experiment and the interactions between diseases |
-| `diseases/<name>.toml` | One disease; every file in the directory is offered in the UI |
+| `experiment.toml` | World settings of the default experiment |
+| `diseases/<name>.toml` | One disease; every file in the directory is offered in the UI, those with `enabled = true` start in the default experiment |
+| `interactions/<name>.toml` | One interaction between two diseases |
 
-To add a disease, copy a file in `configs/diseases/` and change it. To add an interaction between diseases, copy an entry in `experiment.toml`. A wrong value stops the start with an error that names it.
+To add a disease, copy a file in `configs/diseases/` and change it. To add an interaction between diseases, copy a file in `configs/interactions/`. A wrong value stops the start with an error that names it.
 
 ## Adding a disease model
 

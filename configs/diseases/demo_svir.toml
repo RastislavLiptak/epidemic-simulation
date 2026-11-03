@@ -6,6 +6,7 @@
 # target, Assumption = no source found, Model = a modelling convention.
 model = "svir"
 initial_infected = 15
+enabled = true
 
 [parameters]
 # Fitted: with contact_distance 3 m the town gives an effective reproduction number of about 1.4

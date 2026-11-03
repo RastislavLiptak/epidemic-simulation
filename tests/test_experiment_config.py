@@ -13,25 +13,29 @@ from config_factory import (
 from epidemic_sandbox.disease_models import DISEASE_MODELS
 from epidemic_sandbox.experiment_config import STEPS_PER_DAY, load_library
 
-SIR = 'model = "sir"\ninitial_infected = 1\n'
+INFECTION = 'model = "plain"\ninitial_infected = 1\n'
 
 
 def write_library(
-    directory: Path, diseases: dict[str, str], enabled=None, world="", extra=""
+    directory: Path, diseases: dict[str, str], enabled=None, world="", interactions=None
 ) -> Path:
+    """A library on disk: `enabled` names the diseases of the default experiment (all if None)."""
     (directory / "diseases").mkdir(parents=True)
     reference = directory.parent / "data" / "reference"
     reference.mkdir(parents=True, exist_ok=True)
     for table in (CONFIG_DIRECTORY.parent / "data" / "reference").glob("*.csv"):
         (reference / table.name).write_text(table.read_text())
     (directory / "town.toml").write_text((CONFIG_DIRECTORY / "town.toml").read_text())
-    for name, content in diseases.items():
-        (directory / "diseases" / f"{name}.toml").write_text(content)
     names = list(diseases) if enabled is None else enabled
+    for name, content in diseases.items():
+        flag = "enabled = true\n" if name in names else ""
+        (directory / "diseases" / f"{name}.toml").write_text(flag + content)
+    if interactions:
+        (directory / "interactions").mkdir()
+        for name, content in interactions.items():
+            (directory / "interactions" / f"{name}.toml").write_text(content)
     path = directory / "experiment.toml"
-    path.write_text(
-        world + "diseases = [" + ", ".join(f'"{name}"' for name in names) + "]\n" + extra
-    )
+    path.write_text(world)
     return path
 
 
@@ -42,40 +46,66 @@ def load(path: Path):
 def test_demo_library_loads_every_model_and_the_default_interactions():
     assert {disease.model for disease in LIBRARY.catalog.values()} == DISEASE_MODELS.keys()
     assert LIBRARY.default.diseases.keys() <= LIBRARY.catalog.keys()
-    assert len(LIBRARY.default.interactions) == 2
+    assert LIBRARY.default.interactions == tuple(
+        rule
+        for rule in LIBRARY.interactions
+        if rule.source in LIBRARY.default.diseases and rule.target in LIBRARY.default.diseases
+    )
     assert LIBRARY.default.world["population"] == 3000
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_catalog_contains_diseases_that_are_not_enabled(tmp_path):
-    library = load(write_library(tmp_path / "configs", {"flu": SIR, "cold": SIR}, enabled=["flu"]))
+    library = load(
+        write_library(tmp_path / "configs", {"flu": INFECTION, "cold": INFECTION}, enabled=["flu"])
+    )
     assert library.catalog.keys() == {"flu", "cold"} and library.default.diseases.keys() == {"flu"}
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_missing_world_settings_use_defaults(tmp_path):
     assert (
-        load(write_library(tmp_path / "configs", {"flu": SIR})).default.world["population"] == 3000
+        load(write_library(tmp_path / "configs", {"flu": INFECTION})).default.world["population"]
+        == 3000
     )
 
 
-def test_interactions_are_read_from_the_experiment_file(tmp_path):
-    extra = (
-        '[[interactions]]\nsource = "a"\nstates = ["recovered"]\ntarget = "b"\n'
+@pytest.mark.usefixtures("synthetic_in_registry")
+def test_interactions_are_read_from_files_of_their_own(tmp_path):
+    rule = (
+        'source = "a"\nstates = ["recovered"]\ntarget = "b"\n'
         'effect = "infectiousness"\nfactor = 0.5\n'
     )
-    library = load(write_library(tmp_path / "configs", {"a": SIR, "b": SIR}, extra=extra))
+    library = load(
+        write_library(
+            tmp_path / "configs", {"a": INFECTION, "b": INFECTION}, interactions={"a_to_b": rule}
+        )
+    )
     assert library.default.interactions[0].effect == "infectiousness"
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
+def test_an_interaction_that_names_a_disease_without_a_file_is_rejected(tmp_path):
+    rule = (
+        'source = "a"\nstates = ["recovered"]\ntarget = "gone"\n'
+        'effect = "susceptibility"\nfactor = 0.5\n'
+    )
+    with pytest.raises(ValueError, match="without a file"):
+        load(
+            write_library(tmp_path / "configs", {"a": INFECTION}, interactions={"a_to_gone": rule})
+        )
+
+
+@pytest.mark.usefixtures("synthetic_in_registry")
 @pytest.mark.parametrize(
     ("diseases", "enabled", "message"),
     [
-        ({"flu": SIR}, [], "at least one disease"),
-        ({"flu": SIR}, ["gone"], "without a file"),
+        ({"flu": INFECTION}, [], "at least one disease"),
         ({"flu": 'model = "xyz"\ninitial_infected = 1\n'}, None, "unknown model"),
-        ({"flu": SIR + "[parameters]\nbeta = 1\n"}, None, "Unknown parameters"),
-        ({"flu": SIR + "[parameters]\ntransmission = 2\n"}, None, "out of range"),
-        ({"Flu": SIR}, None, "Disease name"),
-        ({"flu-a": SIR}, None, "Disease name"),
+        ({"flu": INFECTION + "[parameters]\nbeta = 1\n"}, None, "Unknown parameters"),
+        ({"flu": INFECTION + "[parameters]\ntransmission = 2\n"}, None, "out of range"),
+        ({"Flu": INFECTION}, None, "Disease name"),
+        ({"flu-a": INFECTION}, None, "Disease name"),
     ],
 )
 def test_invalid_library_is_rejected(tmp_path, diseases, enabled, message):
@@ -83,11 +113,13 @@ def test_invalid_library_is_rejected(tmp_path, diseases, enabled, message):
         load(write_library(tmp_path / "configs", diseases, enabled))
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_unknown_world_setting_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="Unknown parameters"):
-        load(write_library(tmp_path / "configs", {"flu": SIR}, world="mobility = 6\n"))
+        load(write_library(tmp_path / "configs", {"flu": INFECTION}, world="mobility = 6\n"))
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_the_time_step_is_fixed_by_the_application_and_not_part_of_an_experiment():
     config = LIBRARY.parse(definition())
     assert config.world["steps_per_day"] == STEPS_PER_DAY == 48
@@ -95,6 +127,7 @@ def test_the_time_step_is_fixed_by_the_application_and_not_part_of_an_experiment
     assert LIBRARY.default.world["steps_per_day"] == STEPS_PER_DAY
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_the_town_is_set_by_its_area_and_its_side_follows_from_it():
     config = LIBRARY.parse(definition(arena_area=2_250_000))
     assert config.world["arena_size"] == 1500
@@ -109,12 +142,13 @@ def test_a_town_that_is_too_small_is_told_its_least_area_in_square_meters():
         LIBRARY.parse(definition(population=5000, arena_area=100_000))
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_definition_round_trips():
     config = LIBRARY.parse(
         definition(
             {
-                "a": disease_definition("seir", 3, transmission=0.2),
-                "b": disease_definition("sir"),
+                "a": disease_definition("latent", 3, transmission=0.2),
+                "b": disease_definition("plain"),
             },
             [interaction("a", ["recovered"], "b", "infectiousness", 0.4)],
         )
@@ -124,14 +158,16 @@ def test_definition_round_trips():
     assert config.interactions[0].factor == 0.4
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_any_number_of_diseases_can_be_chosen():
-    many = {f"d{i}": disease_definition("sir") for i in range(25)}
+    many = {f"d{i}": disease_definition("plain") for i in range(25)}
     assert len(LIBRARY.parse(definition(many)).diseases) == 25
 
 
-TWO = {"a": disease_definition("sir"), "b": disease_definition("seir")}
+TWO = {"a": disease_definition("plain"), "b": disease_definition("latent")}
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 @pytest.mark.parametrize(
     ("change", "message"),
     [
@@ -146,16 +182,16 @@ TWO = {"a": disease_definition("sir"), "b": disease_definition("seir")}
         ),
         ({"world": {"space_per_person": 10}}, "Unknown parameters"),
         (
-            {"diseases": {"a": disease_definition("sir", contact_distance=50)}},
+            {"diseases": {"a": disease_definition("plain", contact_distance=50)}},
             "within contact distance",
         ),
         ({"world": {"population": 100_000, "arena_area": 1_000_000}}, "too small"),
         ({"diseases": {}}, "at least one disease"),
-        ({"diseases": {"a": disease_definition("sir", 500)}}, "exceeds the population"),
-        ({"diseases": {"a": disease_definition("sir", transmission=5)}}, "out of range"),
-        ({"diseases": {"a": disease_definition("sir", incubation_days=1)}}, "Unknown parameters"),
+        ({"diseases": {"a": disease_definition("plain", 500)}}, "exceeds the population"),
+        ({"diseases": {"a": disease_definition("plain", transmission=5)}}, "out of range"),
+        ({"diseases": {"a": disease_definition("plain", incubation_days=1)}}, "Unknown parameters"),
         ({"diseases": {"a": disease_definition("nope")}}, "unknown model"),
-        ({"diseases": {"Bad Name": disease_definition("sir")}}, "Disease name"),
+        ({"diseases": {"Bad Name": disease_definition("plain")}}, "Disease name"),
         ({"diseases": TWO, "interactions": [interaction("a", ["recovered"], "zzz")]}, "not one of"),
         ({"diseases": TWO, "interactions": [interaction("zzz", ["recovered"], "b")]}, "not one of"),
         (
@@ -208,41 +244,53 @@ def test_malformed_definition_is_rejected(broken):
         LIBRARY.parse(broken)
 
 
+@pytest.mark.usefixtures("synthetic_in_registry")
 def test_definition_without_interactions_is_valid():
     candidate = definition()
     del candidate["interactions"]
     assert LIBRARY.parse(candidate).interactions == ()
 
 
-def test_catalog_diseases_are_enabled_by_name_with_only_the_initial_cases_chosen():
-    config = LIBRARY.parse(
-        {
-            "world": {"population": 500, "arena_area": 640_000},
-            "diseases": {"demo_sir": {"initial_infected": 7}},
-        }
+WORLD_OF_500 = {"population": 500, "arena_area": 640_000}
+A_TO_B = (
+    'source = "a"\nstates = ["recovered"]\ntarget = "b"\neffect = "susceptibility"\nfactor = 0.5\n'
+)
+
+
+@pytest.fixture
+def two_diseases(tmp_path, synthetic_in_registry):
+    """A library of two diseases, `a` and `b`, with an interaction from `a` to `b`."""
+    return load(
+        write_library(
+            tmp_path / "configs", {"a": INFECTION, "b": INFECTION}, interactions={"a_to_b": A_TO_B}
+        )
     )
-    assert config.diseases["demo_sir"].initial_infected == 7
-    assert config.diseases["demo_sir"].parameters == LIBRARY.catalog["demo_sir"].parameters
+
+
+def test_catalog_diseases_are_enabled_by_name_with_only_the_initial_cases_chosen(two_diseases):
+    config = two_diseases.parse({"world": WORLD_OF_500, "diseases": {"a": {"initial_infected": 7}}})
+    assert config.diseases["a"].initial_infected == 7
+    assert config.diseases["a"].parameters == two_diseases.catalog["a"].parameters
     assert config.interactions == (), "interactions need both diseases"
 
 
-def test_interactions_between_enabled_catalog_diseases_come_from_the_config():
-    config = LIBRARY.parse(
+def test_interactions_between_enabled_catalog_diseases_come_from_the_library(two_diseases):
+    config = two_diseases.parse(
         {
-            "world": {"population": 500, "arena_area": 640_000},
-            "diseases": {"demo_sir": {"initial_infected": 1}, "demo_seir": {"initial_infected": 1}},
+            "world": WORLD_OF_500,
+            "diseases": {"a": {"initial_infected": 1}, "b": {"initial_infected": 1}},
         }
     )
-    assert [(i.source, i.target) for i in config.interactions] == [("demo_sir", "demo_seir")]
+    assert [(i.source, i.target) for i in config.interactions] == [("a", "b")]
 
 
-def test_parameters_of_a_catalog_disease_cannot_be_overridden():
+def test_parameters_of_a_catalog_disease_cannot_be_overridden(two_diseases):
     broken = {
-        "world": {"population": 500, "arena_area": 640_000},
-        "diseases": {"demo_sir": {"initial_infected": 1, "parameters": {"transmission": 1.0}}},
+        "world": WORLD_OF_500,
+        "diseases": {"a": {"initial_infected": 1, "parameters": {"transmission": 1.0}}},
     }
     with pytest.raises(ValueError, match="defined in its file"):
-        LIBRARY.parse(broken)
+        two_diseases.parse(broken)
 
 
 def test_unknown_catalog_disease_is_rejected():

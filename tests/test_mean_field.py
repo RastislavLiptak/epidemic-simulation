@@ -5,8 +5,7 @@ import math
 import numpy as np
 import pytest
 from mean_field import final_size, integrate, mean_course, run_well_mixed
-
-from epidemic_sandbox.disease_models.sir import SirModel
+from synthetic_models import PlainModel
 
 IDENTICAL = {"susceptibility_cv": 0.0, "infectiousness_dispersion": 0.0}
 
@@ -15,7 +14,7 @@ def test_the_final_size_of_an_sir_epidemic_follows_the_final_size_relation():
     transmission, contacts, days_infectious = 0.4, 4.0, 5.0
     r0 = -math.log(1 - transmission) * contacts * days_infectious
     _, counts = mean_course(
-        SirModel,
+        PlainModel,
         runs=4,
         population=20_000,
         cases=100,
@@ -42,7 +41,7 @@ def test_a_sir_epidemic_with_exponential_stays_follows_the_ode_in_time():
     population, cases = 40_000, 200
     ode = integrate(derivative, np.array([1 - cases / population, cases / population, 0.0]), 60)
     _, counts = mean_course(
-        SirModel,
+        PlainModel,
         runs=3,
         population=population,
         cases=cases,
@@ -62,6 +61,6 @@ def test_a_sir_epidemic_with_exponential_stays_follows_the_ode_in_time():
 
 def test_without_infectious_people_nothing_happens():
     _, counts = run_well_mixed(
-        SirModel, population=500, cases=0, days=5, contacts=10.0, transmission=0.5
+        PlainModel, population=500, cases=0, days=5, contacts=10.0, transmission=0.5
     )
     assert counts[:, 0].min() == 500
