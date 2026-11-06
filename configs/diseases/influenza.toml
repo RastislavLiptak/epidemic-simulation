@@ -4,7 +4,7 @@
 # (vaccinated people can still be infected, at a lower hazard) and wears off. The virus is
 # influenza A(H1N1)pdm09 where a number depends on the subtype. Tags: Source = a published number,
 # Derived = computed from sources, Fitted = tuned in the model to a published target (the targets
-# are in [targets] below; `python -m epidemic_sandbox.calibrate influenza` measures them),
+# are in [targets] below; `python -m epidemic_sandbox.analysis.calibrate influenza` measures them),
 # Estimate = no number found, so a reasoned guess (the reasoning is given), Model = a modelling
 # convention.
 model = "svepir"

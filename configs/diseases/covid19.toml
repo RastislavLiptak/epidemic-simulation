@@ -1,6 +1,6 @@
 # COVID-19, original SARS-CoV-2 (SEPIR). Tags: Source = a published number, Derived = computed from
 # sources, Fitted = tuned in the model to a published target (the targets are in [targets] below;
-# `python -m epidemic_sandbox.calibrate covid19` measures them), Estimate = no number found, so a
+# `python -m epidemic_sandbox.analysis.calibrate covid19` measures them), Estimate = no number found, so a
 # reasoned guess (the reasoning is given), Model = a modelling convention. A share of the infections
 # never has symptoms (asymptomatic_share below): such people spread less, behave as usual and do not
 # die of it.

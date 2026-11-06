@@ -2,6 +2,6 @@
 # diseases/ that set `enabled = true`; the interactions between diseases are the files in
 # interactions/.
 population = 3000
-arena_area = 4000000
+area_km2 = 4
 seed = 42
 runs = 1

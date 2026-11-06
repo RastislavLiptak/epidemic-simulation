@@ -5,7 +5,7 @@ from typing import ClassVar
 
 import numpy as np
 
-from epidemic_sandbox.parameter_spec import ParameterSpec, resolve_parameters
+from epidemic_sandbox.config.parameter_spec import ParameterSpec, resolve_parameters
 
 SUSCEPTIBLE = "susceptible"
 EXPOSED = "exposed"
@@ -599,6 +599,12 @@ class DiseaseModelAbstract:
         """Who is in a confined state of the disease (isolated at home)."""
         indices = [self._index[state] for state in self.CONFINED_STATES]
         return np.isin(disease_state.state, indices)
+
+    def state_table(self, states) -> np.ndarray:
+        """A flag for each state of the disease: whether it is one of `states` (names)."""
+        table = np.zeros(len(self._index), np.bool_)
+        table[[self._index[state] for state in states if state in self._index]] = True
+        return table
 
     def away_mask(self, disease_state: DiseaseState) -> np.ndarray:
         """Who is gravely ill with the disease (in hospital) and meets nobody in the town."""

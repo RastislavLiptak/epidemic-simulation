@@ -7,7 +7,7 @@
 # infections never has symptoms (they spread less and behave as usual). The model has no seasons and
 # does not tell the types apart. Tags: Source = a published number, Derived =
 # computed from sources, Fitted = tuned in the model to a published target (the targets are in
-# [targets] below; `python -m epidemic_sandbox.calibrate common_cold` measures them), Estimate = no
+# [targets] below; `python -m epidemic_sandbox.analysis.calibrate common_cold` measures them), Estimate = no
 # number found, so a reasoned guess (the reasoning is given), Model = a modelling convention.
 model = "sis"
 # Model: a scenario choice, not a property of the disease.
@@ -74,7 +74,7 @@ asymptomatic_days = 5.4
 # Derived: the town has all its workplaces, but 40.9 % of the employed in Czechia work outside the
 #   municipality where they live (census 2021, CZSO, "Ctyri z deseti zamestnanych vyjizdi za praci
 #   mimo obec obvykleho bydliste"), where colds go round as much as at home. 13.1 % of the infections
-#   of the town happen at work and lunch (python -m epidemic_sandbox.calibrate common_cold), so 0.409
+#   of the town happen at work and lunch (python -m epidemic_sandbox.analysis.calibrate common_cold), so 0.409
 #   x 0.131 = 5.4 % of them would come from outside: 0.054 x 2.7 = 0.145 per person and year. They
 #   keep the cold in the town: a closed town of 3,000 lost it by chance in 6 of 16 runs of a year,
 #   with them in none of 16.
@@ -93,7 +93,7 @@ infectiousness_dispersion = 0.0
 #   followed by Byington et al. 2015 had 6.4 at 0-4, 4.0 at 5-17 and 3.3 at 18-39: immunity to the
 #   #   types already met grows with age, and the school-age children of the town meet many. Measured
 #   (as for community_factor): 0.55 brings them to 5.0 at 2.6. The contacts of every age are
-#   validated (python -m epidemic_sandbox.validate), so the difference is put on susceptibility.
+#   validated (python -m epidemic_sandbox.analysis.validate), so the difference is put on susceptibility.
 susceptibility = [[5, 18, 0.55]]
 
 # What the Fitted values were fitted to, and what the disease is checked against (not fitted).

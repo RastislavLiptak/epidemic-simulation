@@ -6,7 +6,7 @@
 # either. In the town a case spreads until admission, from person to person, and the reproduction
 # number aimed at is that of the rest. Tags: Source = a
 # published number, Derived = computed from sources, Fitted = tuned in the model to a published
-# target (the targets are in [targets] below; `python -m epidemic_sandbox.calibrate sars2003`
+# target (the targets are in [targets] below; `python -m epidemic_sandbox.analysis.calibrate sars2003`
 # measures them), Estimate = no number found, so a reasoned guess, Model = a modelling convention.
 model = "seiqr"
 # Model: a scenario choice, not a property of the disease.

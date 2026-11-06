@@ -18,10 +18,28 @@ pip install -c constraints.txt -e ".[dev]"
 
 ```bash
 python -m epidemic_sandbox         # then open http://localhost:8001
-python -m epidemic_sandbox --help  # port, host and which config files to use
+python -m epidemic_sandbox --help  # port, host, config files and worker processes
 ```
 
 In the UI you set up an experiment (town, diseases, number of runs), watch the runs and hover over a person to see who they are, and look at the results and export them once the experiment is finished.
+
+An experiment belongs to the server, not to the open page: it goes on when the screen is locked or the page is closed, and the page (opened again in the same browser) shows it where it has got to. A run that nobody watches is computed as fast as the machine can, and one without a maximum duration is paused after a while (`[session]` in `configs/app.toml`). The runs of an experiment are computed by one worker process per CPU core, so that several runs take little longer than one; `--workers 0` computes them in the server itself. The machine must stay awake: a computer that goes to sleep stops everything.
+
+## Project layout
+
+```
+configs/              all settings that are not code (see below)
+data/reference/       published data the population is validated against
+epidemic_sandbox/
+  config/             loading and checking of the settings
+  world/              the people and the town: population, schedules, places
+  disease_models/     one module per disease model
+  engine/             the model that steps the people and diseases, its kernels, the run workers
+  app/                the web server, sessions, what the UI is told
+  analysis/           validation of the population, calibration of the diseases
+  web/                the UI: index.html, css/, js/, vendor/
+tests/                mirrors the package; shared helpers are in tests/support/
+```
 
 ## Configuration
 
@@ -44,20 +62,20 @@ Add a module `<name>.py` to `epidemic_sandbox/disease_models/` with one class `<
 ## Validation
 
 ```bash
-python -m epidemic_sandbox.validate
+python -m epidemic_sandbox.analysis.validate
 ```
 
 compares the generated population with the data in `data/reference/` (sources are listed there). Shares and means are tested for equivalence with the published values; who meets whom is compared with published contact matrices, and how many people each age meets with contact surveys. The same checks run in the tests. They validate the population and the contacts, not the diseases.
 
 ```bash
-python -m epidemic_sandbox.calibrate covid19
+python -m epidemic_sandbox.analysis.calibrate covid19
 ```
 
 measures a disease in the town the way studies of real outbreaks measure it (household attack rate, reproduction number, generation interval, where infections happen, incidence of a disease that stays) and compares the results with the published targets in the `[targets]` table of its file. The comments of a disease file say which values were fitted to which target; `--set name=value` tries another value.
 
 ## Scope
 
-The town is self-contained and its people do not age, move or change jobs during a run; a disease can be brought in from outside at a constant rate (`outside_infections`). Every model can let a share of the infections run without symptoms (`asymptomatic_share`): those people behave as usual, spread as much as the disease file says and do not die of it. There are no seasons and no hospitals: the gravely ill are away from the town until they die. Distances, schedules and contacts are simplified; `configs/town.toml` and `epidemic_sandbox/town.py` are where to look when you need to know how.
+The town is self-contained and its people do not age, move or change jobs during a run; a disease can be brought in from outside at a constant rate (`outside_infections`). Every model can let a share of the infections run without symptoms (`asymptomatic_share`): those people behave as usual, spread as much as the disease file says and do not die of it. There are no seasons and no hospitals: the gravely ill are away from the town until they die. Distances, schedules and contacts are simplified; `configs/town.toml` and `epidemic_sandbox/world/town.py` are where to look when you need to know how.
 
 ## Development
 

@@ -11,9 +11,11 @@ max_hours_per_second = 2400  # fastest accepted playback speed, simulated hours 
 max_displayed_people = 20000 # people drawn in the browser (only for the run being watched); counts always cover everybody
 max_frame_ms = 200           # longest computing time per frame; a faster speed than the machine manages is slowed down
 max_unacknowledged_frames = 2 # frames the browser may be behind before the server waits for it
+viewer_stall_seconds = 5     # a browser that acknowledges no frame for this long (locked screen, sleeping tab) is no longer waited for: the run goes on without it
+max_unattended_hours = 12    # a run without a maximum duration that nobody has watched for this long is paused
+kept_idle_hours = 24         # how long the server keeps an experiment that nobody watches and that is not playing
 
 [limits]
-max_interactions = 20
 max_total_people = 2000000  # people in all runs of one experiment together; about 1.5 GB of memory per million
 
 [ui]

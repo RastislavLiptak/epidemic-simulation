@@ -1,3 +1,4 @@
+from epidemic_sandbox.config.parameter_spec import ParameterSpec
 from epidemic_sandbox.disease_models.disease_model_abstract import (
     ASYMPTOMATIC,
     ASYMPTOMATIC_PARAMETERS,
@@ -16,7 +17,6 @@ from epidemic_sandbox.disease_models.disease_model_abstract import (
     Rate,
 )
 from epidemic_sandbox.disease_models.sepir import PRESYMPTOMATIC, WANING
-from epidemic_sandbox.parameter_spec import ParameterSpec
 
 VACCINATED = "vaccinated"
 

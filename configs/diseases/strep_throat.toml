@@ -6,7 +6,7 @@
 # people around the town. Pharyngitis from that reservoir comes as infections from outside (below);
 # the model spreads it on from the ill. Not in the model: seasons and treatment as such.
 # Tags: Source = a published number, Derived = computed from sources, Fitted = tuned in the model to a
-# published target (the targets are in [targets] below; `python -m epidemic_sandbox.calibrate
+# published target (the targets are in [targets] below; `python -m epidemic_sandbox.analysis.calibrate
 # strep_throat` measures them), Estimate = no number found, so a reasoned guess (the reasoning is
 # given), Model = a modelling convention.
 model = "seis"

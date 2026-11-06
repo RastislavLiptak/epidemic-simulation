@@ -1,3 +1,4 @@
+from epidemic_sandbox.config.parameter_spec import ParameterSpec
 from epidemic_sandbox.disease_models.disease_model_abstract import (
     ASYMPTOMATIC,
     ASYMPTOMATIC_PARAMETERS,
@@ -13,7 +14,6 @@ from epidemic_sandbox.disease_models.disease_model_abstract import (
     DiseaseModelAbstract,
     Phase,
 )
-from epidemic_sandbox.parameter_spec import ParameterSpec
 
 PRESYMPTOMATIC = "presymptomatic"
 WANING = "waning"

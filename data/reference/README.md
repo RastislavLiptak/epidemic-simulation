@@ -1,6 +1,6 @@
 # Reference data
 
-Hard data the simulated population is validated against (`python -m epidemic_sandbox.validate`).
+Hard data the simulated population is validated against (`python -m epidemic_sandbox.analysis.validate`).
 
 | File | Content | Source |
 |------|---------|--------|

@@ -23,7 +23,7 @@ dev = [
 ]
 
 [project.scripts]
-epidemic-sandbox = "epidemic_sandbox.server:main"
+epidemic-sandbox = "epidemic_sandbox.app.server:main"
 
 [tool.setuptools.packages.find]
 include = ["epidemic_sandbox*"]
@@ -33,6 +33,7 @@ epidemic_sandbox = ["web/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests/support"]
 
 [tool.ruff]
 line-length = 100

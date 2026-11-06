@@ -1,7 +1,7 @@
 # Measles (SEPIR): after the latent period comes the prodrome (fever, cough, running nose), in which
 # a person already spreads but nobody knows it is measles, then the rash. Tags: Source = a published number, Derived = computed from sources, Fitted = tuned
 # in the model to a published target (the targets are in [targets] below; `python -m
-# epidemic_sandbox.calibrate measles` measures them), Estimate = no number found, so a reasoned guess
+# epidemic_sandbox.analysis.calibrate measles` measures them), Estimate = no number found, so a reasoned guess
 # (the reasoning is given), Model = a modelling convention.
 model = "sepir"
 # Model: a scenario choice, not a property of the disease.
