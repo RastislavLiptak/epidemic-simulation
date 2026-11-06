@@ -51,13 +51,27 @@ def build_grid(x, y, size, cells_per_side):
 
 
 @njit(cache=True, parallel=True)
-def count_infectious_contacts(
-    x, y, susceptible, infectiousness, cell_of, cell_start, people_by_cell, cells_per_side, radius
+def count_infectious_contacts_by_household(
+    x,
+    y,
+    susceptible,
+    infectiousness,
+    household,
+    venue,
+    cell_of,
+    cell_start,
+    people_by_cell,
+    cells_per_side,
+    radius,
 ):
-    """For every susceptible person, the infectiousness summed over people within `radius`.
+    """For every susceptible person, the infectiousness summed over people within `radius` in the
+    same venue, and the part of it that comes from members of their own household.
 
     `infectiousness` is 0 for people who cannot infect and 1 for a fully infectious person.
-    Cells must be at least `radius` wide so that the 3x3 neighbourhood contains every contact.
+    `venue` is the place everybody is in (see `town.Venues`); people in different venues (behind
+    a wall) and people on the way (venue -1) are not in contact. Cells must be at least `radius`
+    wide so that the 3x3 neighbourhood contains every contact.
+    Returns (all contacts, contacts in the own household).
     """
     count = x.shape[0]
     cell_has_infectious = np.zeros(cells_per_side * cells_per_side, np.bool_)
@@ -65,13 +79,15 @@ def count_infectious_contacts(
         if infectiousness[person] > 0:
             cell_has_infectious[cell_of[person]] = True
     contacts = np.zeros(count, np.float32)
+    at_home = np.zeros(count, np.float32)
     radius_squared = radius * radius
     for person in prange(count):
-        if not susceptible[person]:
+        if not susceptible[person] or venue[person] < 0:
             continue
         cell_y = cell_of[person] // cells_per_side
         cell_x = cell_of[person] - cell_y * cells_per_side
         found = np.float32(0.0)
+        own = np.float32(0.0)
         for neighbour_y in range(max(cell_y - 1, 0), min(cell_y + 2, cells_per_side)):
             for neighbour_x in range(max(cell_x - 1, 0), min(cell_x + 2, cells_per_side)):
                 cell = neighbour_y * cells_per_side + neighbour_x
@@ -79,18 +95,51 @@ def count_infectious_contacts(
                     continue
                 for slot in range(cell_start[cell], cell_start[cell + 1]):
                     other = people_by_cell[slot]
-                    if infectiousness[other] > 0:
+                    if infectiousness[other] > 0 and venue[other] == venue[person]:
                         delta_x = x[other] - x[person]
                         delta_y = y[other] - y[person]
                         if delta_x * delta_x + delta_y * delta_y <= radius_squared:
                             found += infectiousness[other]
+                            if household[other] == household[person]:
+                                own += infectiousness[other]
         contacts[person] = found
-    return contacts
+        at_home[person] = own
+    return contacts, at_home
+
+
+def count_infectious_contacts(
+    x,
+    y,
+    susceptible,
+    infectiousness,
+    venue,
+    cell_of,
+    cell_start,
+    people_by_cell,
+    cells_per_side,
+    radius,
+):
+    """For every susceptible person, the infectiousness summed over people within `radius` in
+    the same venue."""
+    return count_infectious_contacts_by_household(
+        x,
+        y,
+        susceptible,
+        infectiousness,
+        np.zeros(x.shape[0], np.int32),
+        venue,
+        cell_of,
+        cell_start,
+        people_by_cell,
+        cells_per_side,
+        radius,
+    )[0]
 
 
 @njit(cache=True, parallel=True)
-def find_pairs(x, y, member, cell_of, cell_start, people_by_cell, cells_per_side, radius):
-    """All pairs (first < second) of `member` people within `radius` of each other."""
+def find_pairs(x, y, member, venue, cell_of, cell_start, people_by_cell, cells_per_side, radius):
+    """All pairs (first < second) of `member` people within `radius` of each other in the same
+    venue (see `count_infectious_contacts_by_household`)."""
     count = x.shape[0]
     radius_squared = radius * radius
     found = np.zeros(count, np.int64)
@@ -102,7 +151,7 @@ def find_pairs(x, y, member, cell_of, cell_start, people_by_cell, cells_per_side
             first = np.empty(offset[count], np.int32)
             second = np.empty(offset[count], np.int32)
         for person in prange(count):
-            if not member[person]:
+            if not member[person] or venue[person] < 0:
                 continue
             cell_y = cell_of[person] // cells_per_side
             cell_x = cell_of[person] - cell_y * cells_per_side
@@ -112,7 +161,7 @@ def find_pairs(x, y, member, cell_of, cell_start, people_by_cell, cells_per_side
                     cell = neighbour_y * cells_per_side + neighbour_x
                     for slot in range(cell_start[cell], cell_start[cell + 1]):
                         other = people_by_cell[slot]
-                        if other > person and member[other]:
+                        if other > person and member[other] and venue[other] == venue[person]:
                             delta_x = x[other] - x[person]
                             delta_y = y[other] - y[person]
                             if delta_x * delta_x + delta_y * delta_y <= radius_squared:
@@ -123,3 +172,60 @@ def find_pairs(x, y, member, cell_of, cell_start, people_by_cell, cells_per_side
             if fill == 0:
                 found[person] = written
     return first, second
+
+
+@njit(cache=True)
+def pick_infectors(
+    x,
+    y,
+    targets,
+    draws,
+    infectiousness,
+    household,
+    venue,
+    community,
+    cell_of,
+    cell_start,
+    people_by_cell,
+    cells_per_side,
+    radius,
+):
+    """For each person in `targets`, one of the infectious people in contact with them, chosen
+    with the chance of their share of the exposure (see `count_infectious_contacts_by_household`:
+    the own household at weight 1, everybody else at `community`); -1 if there is none.
+
+    `draws` are uniform random numbers, one per target, so that the kernel stays deterministic.
+    """
+    infectors = np.full(targets.shape[0], -1, np.int64)
+    radius_squared = radius * radius
+    for index in range(targets.shape[0]):
+        person = targets[index]
+        if venue[person] < 0:
+            continue
+        cell_y = cell_of[person] // cells_per_side
+        cell_x = cell_of[person] - cell_y * cells_per_side
+        threshold = 0.0
+        for sweep in range(2):  # the total first, then the pick
+            total = 0.0
+            for neighbour_y in range(max(cell_y - 1, 0), min(cell_y + 2, cells_per_side)):
+                for neighbour_x in range(max(cell_x - 1, 0), min(cell_x + 2, cells_per_side)):
+                    cell = neighbour_y * cells_per_side + neighbour_x
+                    for slot in range(cell_start[cell], cell_start[cell + 1]):
+                        other = people_by_cell[slot]
+                        if infectiousness[other] <= 0 or venue[other] != venue[person]:
+                            continue
+                        delta_x = x[other] - x[person]
+                        delta_y = y[other] - y[person]
+                        if delta_x * delta_x + delta_y * delta_y > radius_squared:
+                            continue
+                        weight = infectiousness[other]
+                        if household[other] != household[person]:
+                            weight *= community
+                        total += weight
+                        if sweep == 1 and infectors[index] < 0 and total >= threshold:
+                            infectors[index] = other
+            if sweep == 0:
+                if total <= 0:
+                    break
+                threshold = draws[index] * total
+    return infectors

@@ -179,7 +179,7 @@ def test_frame_has_the_counts_of_every_run_but_the_people_of_the_watched_run_onl
     assert (frame["weekday"], frame["hour"]) == (0, 0.0)
     assert len(frame["runs"]) == 2
     for run in frame["runs"]:
-        assert run["counts"] == {"a": [198, 2, 0, 0], "b": [198, 0, 2, 0, 0]}
+        assert run["counts"] == {"a": [198, 2, 0, 0, 0], "b": [198, 0, 2, 0, 0, 0]}
         assert "x" not in run and "states" not in run
     simulation.handle({"type": "watch", "run": 1})
     frame = simulation.frame()
@@ -299,7 +299,10 @@ def test_the_maximum_duration_also_stops_a_day_step_and_the_max_speed():
     simulation = started_simulation(steps_per_day=4, max_days=2)
     simulation.handle({"type": "speed", "value": 0})
     simulation.handle({"type": "play"})
-    simulation.advance()
+    for _ in range(50):  # frames of the computing budget each, as many as a slow machine needs
+        simulation.advance()
+        if simulation.finished:
+            break
     assert simulation.finished and steps(simulation) == [8]
 
 

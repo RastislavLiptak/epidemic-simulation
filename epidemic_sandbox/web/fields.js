@@ -71,11 +71,7 @@ export function transmissionChips(estimate) {
   if (!estimate) return [];
   const contacts = element("span", "badge badge--muted", `${estimate.mean_contacts.toFixed(1)} contacts`);
   contacts.title = "Average number of people within this disease's contact distance over a week.";
-  const r0 = estimate.mean_field_r0;
-  const reproduction = element("span", "badge badge--muted", r0 === null ? "R₀ unbounded" : `R₀ ≤ ${r0.toFixed(1)}`);
-  reproduction.title =
-    "Mean-field reproduction number: every contact counted as new and independent. It overestimates the real value, because contacts are shared in households and workplaces.";
   const household = element("span", "badge badge--muted", `household risk ${(100 * estimate.household_risk).toFixed(0)} %`);
-  household.title = "Chance that an infectious person infects someone who stays next to them for the whole infectious period.";
-  return [contacts, reproduction, household];
+  household.title = "Chance that an infectious person infects someone who stays next to them at home for the whole infectious period.";
+  return [contacts, household];
 }

@@ -17,7 +17,7 @@ from epidemic_sandbox.config_checks import (
     require_positive,
     require_share,
 )
-from epidemic_sandbox.population import ROLES, WORKER
+from epidemic_sandbox.population import ADULT_AGE, ROLES, WORKER
 
 DAY_TYPES = ("weekday", "weekend")
 HOME, WORK, LUNCH = 0, 1, 2
@@ -41,6 +41,7 @@ LUNCH_SPREAD_HOURS = 0.25
 # stop on the way), no source.
 BUFFER_HOURS = 0.15
 WORK_EVENTS = 4  # to work, to lunch, back to work, home: the events of a day at work
+MAX_AGE_OF_TABLES = 128  # tables by year of age reach this far
 # A shift that starts this late leaves the morning free for errands, as a day shift the evening.
 LATE_SHIFT_FROM = 12.0
 VARIABILITY_KEYS = (
@@ -72,6 +73,10 @@ class ActivityParameters:
     area_sigma: float = 0.0
     presence_share: float = 0.0
     age_scale: float = 0.0
+    staff_share: float = 0.0
+    staff_days: float = 5.0
+    family_share: np.ndarray | None = None  # by year of age
+    generation_gap: float = 0.0
 
 
 @dataclass(frozen=True, eq=False)
@@ -110,6 +115,22 @@ def _in_range(today: str, start: str, end: str) -> bool:
 
 
 @dataclass(frozen=True, eq=False)
+class Childcare:
+    """How small children are looked after while their guardian works.
+
+    `alone_from`: the age from which a child may be at home without an adult. `hours`: the opening
+    hours [from, to] of the kindergarten and of the after-school club, by the role code of the
+    child (a child with `aftercare` stays there until the guardian is back, within these hours).
+    `club_share`: the share of the school children young enough to be accompanied who attend
+    the after-school club.
+    """
+
+    alone_from: int
+    hours: dict[int, tuple[float, float]]
+    club_share: float
+
+
+@dataclass(frozen=True, eq=False)
 class ScheduleParameters:
     """Usual windows by role and day type, probabilities, and how much people deviate."""
 
@@ -127,6 +148,7 @@ class ScheduleParameters:
     late_shift_share: float
     late_shift_start: float
     late_shift_end: float
+    childcare: "Childcare | None" = None
 
     @property
     def max_events(self) -> int:
@@ -143,6 +165,12 @@ class PersonalTraits:
     `start_habit` and `end_habit` are fixed shifts of the usual day in hours, `weekend_work` the
     chance of working on a weekend day, `guardian` the adult a child goes out with (-1 for nobody)
     and `place_kind` the role code of the kind of place somebody attends.
+
+    Optional: `shift_window` [person, weekday/weekend, start/end] and `shift_attendance`
+    [person, weekday/weekend] replace the usual hours and the chance of being at work of the
+    people whose job has its own hours (NaN keeps the role's); `age`, `household` and `aftercare`
+    (the child stays at kindergarten or in the after-school club until the guardian is back from
+    work) let small children be looked after (see `_look_after_children`).
     """
 
     start_habit: np.ndarray
@@ -151,6 +179,11 @@ class PersonalTraits:
     weekend_work: np.ndarray
     guardian: np.ndarray
     place_kind: np.ndarray
+    shift_window: np.ndarray | None = None
+    shift_attendance: np.ndarray | None = None
+    age: np.ndarray | None = None
+    household: np.ndarray | None = None
+    aftercare: np.ndarray | None = None
 
 
 @dataclass
@@ -195,6 +228,7 @@ def load_schedule_parameters(raw: dict) -> ScheduleParameters:
     if any((variability[key] < 0).any() for key in VARIABILITY_KEYS):
         raise ValueError("variability values must not be negative")
     weekend, late = raw["weekend_work"], raw["late_shift"]
+    childcare = _load_childcare(raw["childcare"]) if "childcare" in raw else None
     for key in ("usual_share", "sometimes_share", "usual_chance", "sometimes_chance"):
         require_share(f"weekend_work.{key}", weekend[key])
     require_share("late_shift.share", late["share"])
@@ -215,7 +249,19 @@ def load_schedule_parameters(raw: dict) -> ScheduleParameters:
         late_shift_share=late["share"],
         late_shift_start=late["start_hours_later"],
         late_shift_end=late["end_hours_later"],
+        childcare=childcare,
     )
+
+
+def _load_childcare(raw: dict) -> Childcare:
+    require(raw["alone_from"] >= 0, "childcare.alone_from must not be negative")
+    hours = {}
+    for role, key in (("preschool", "kindergarten_hours"), ("school", "club_hours")):
+        start, end = raw[key]
+        require(0 <= start < end <= HOURS_PER_DAY, f"childcare.{key}: invalid hours")
+        hours[ROLES.index(role)] = (float(start), float(end))
+    require_share("childcare.club_share", raw["club_share"])
+    return Childcare(int(raw["alone_from"]), hours, float(raw["club_share"]))
 
 
 def _load_calendar(raw: dict) -> Calendar:
@@ -259,6 +305,20 @@ def _check_activity(name: str, values: dict) -> None:
         require_share(f"activity {name}: presence_share", values["presence_share"])
         for key in ("size_sigma", "area_sigma"):
             require_not_negative(f"activity {name}: {key}", values.get(key, 0.0))
+    if "staff_share" in values:
+        require(values["kind"] == "site", f"activity {name}: only a site has staff")
+        require_share(f"activity {name}: staff_share", values["staff_share"])
+    if "family_share" in values:
+        require(values["kind"] == "visit", f"activity {name}: only a visit can be to family")
+        for start, end, share in values["family_share"]:
+            require(0 <= start < end, f"activity {name}: family_share has an invalid age range")
+            require_share(f"activity {name}: family_share", share)
+        require_positive(f"activity {name}: generation_gap", values["generation_gap"])
+    if "staff_days" in values:
+        require(
+            0 < values["staff_days"] <= DAYS_PER_WEEK,
+            f"activity {name}: staff_days must be between 0 and 7",
+        )
 
 
 def _load_activity(name: str, values: dict) -> ActivityParameters:
@@ -280,9 +340,17 @@ def _load_activity(name: str, values: dict) -> ActivityParameters:
             "area_sigma",
             "presence_share",
             "age_scale",
+            "staff_share",
+            "staff_days",
+            "generation_gap",
         )
         if key in values
     }
+    if "family_share" in values:
+        shares = np.zeros(MAX_AGE_OF_TABLES)
+        for start, end, share in values["family_share"]:
+            shares[int(start) : int(end)] = share
+        optional["family_share"] = shares
     return ActivityParameters(
         name=name,
         kind=values["kind"],
@@ -337,12 +405,18 @@ def draw_day_schedule(
     """
     count, day = len(role), int(weekend)
     work = params.work_window[role, day]
+    if traits.shift_window is not None:
+        own = ~np.isnan(traits.shift_window[:, day, 0])
+        work = np.where(own[:, None], traits.shift_window[:, day], work)
     lunch = params.lunch_window[role, day]
     spread = {key: params.variability[key][role] for key in VARIABILITY_KEYS}
 
     has_place = ~np.isnan(work[:, 0]) & ~np.isin(traits.place_kind, closed)
     days_off = traits.weekend_work * (DAYS_PER_WEEK - WEEKEND_FROM_DAY) / WEEKEND_FROM_DAY
     chance_absent = 1.0 - traits.weekend_work if weekend else spread["absence"] + days_off
+    if traits.shift_attendance is not None:
+        own = ~np.isnan(traits.shift_attendance[:, day])
+        chance_absent = np.where(own, 1.0 - traits.shift_attendance[:, day], chance_absent)
     absent = has_place & (rng.random(count) < chance_absent)
     attends = has_place & ~absent
     work_from = (
@@ -359,10 +433,13 @@ def draw_day_schedule(
     )
     work_from = np.clip(work_from, 0.0, LATEST_END - MIN_PRESENCE_HOURS)
     work_to = np.clip(np.maximum(work_to, work_from + MIN_PRESENCE_HOURS), 0.0, LATEST_END)
+    absent, attends = _look_after_children(traits, has_place, absent, work_from, work_to, params)
 
     wants_lunch = (
         attends & ~np.isnan(lunch[:, 0]) & (rng.random(count) < params.lunch_probability[role])
     )
+    if traits.shift_window is not None:  # a shift takes its break at the workplace
+        wants_lunch &= np.isnan(traits.shift_window[:, day, 0])
     lunch_from = rng.uniform(np.nan_to_num(lunch[:, 0]), np.nan_to_num(lunch[:, 1]))
     lunch_to = lunch_from + np.clip(
         rng.normal(params.lunch_mean_hours, LUNCH_SPREAD_HOURS, count),
@@ -408,6 +485,43 @@ def draw_day_schedule(
         spot_x=spot_x,
         spot_y=spot_y,
     )
+
+
+def _look_after_children(traits, has_place, absent, work_from, work_to, params):
+    """Nobody leaves a small child alone; returns who is absent from their place and who attends.
+
+    A child with `aftercare` (kindergarten, after-school club) is brought before the guardian
+    leaves for work and fetched when the guardian is back, within the opening hours of the place:
+    `work_from` and `work_to` of the child change. A child younger than `alone_from` who would be
+    at home while the guardian works and no other adult of the household is at home keeps the
+    guardian at home that day (who then counts as absent from work).
+    """
+    attends = has_place & ~absent
+    care = params.childcare
+    if care is None or traits.age is None or traits.household is None:
+        return absent, attends
+    children = np.flatnonzero(traits.guardian >= 0)
+    guardian = traits.guardian[children]
+    away_from = work_from[guardian] - BUFFER_HOURS
+    away_to = work_to[guardian] + BUFFER_HOURS
+    opens = np.full(len(children), np.inf)
+    closes = np.full(len(children), -np.inf)
+    for kind, (start, end) in care.hours.items():
+        at_place = traits.place_kind[children] == kind
+        opens[at_place], closes[at_place] = start, end
+    stays = attends[children] & traits.aftercare[children] & attends[guardian]
+    kept = children[stays]
+    work_from[kept] = np.maximum(np.minimum(work_from[kept], away_from[stays]), opens[stays])
+    work_to[kept] = np.minimum(np.maximum(work_to[kept], away_to[stays]), closes[stays])
+    covered = attends[children] & (work_from[children] <= away_from)
+    covered &= work_to[children] >= away_to
+    free_adult = (traits.age >= ADULT_AGE) & ~attends  # (care homes have no children)
+    free = np.bincount(traits.household, weights=free_adult)
+    small = traits.age[children] < care.alone_from
+    alone = small & attends[guardian] & ~covered & (free[traits.household[children]] == 0)
+    absent = absent.copy()
+    absent[guardian[alone]] = True
+    return absent, has_place & ~absent
 
 
 def _accompany(times, codes, children, guardians, attends, work_to) -> None:

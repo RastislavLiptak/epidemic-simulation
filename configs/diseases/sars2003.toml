@@ -1,0 +1,151 @@
+# SARS, the 2003 outbreak (SEIQR): cases are recognised some days after the onset and taken to
+# hospital, where they are isolated; the structure follows the SEIJR model of Chowell et al. 2003
+# (J Theor Biol). The town has no hospital: half of the Hong Kong patients were infected in clinics,
+# hospitals and nursing homes (49.3 %, Leung et al. 2004, Ann Intern Med 141:662), and 18.8 % in one
+# housing estate, Amoy Gardens, by an aerosol from the sewage, a route the town does not have
+# either. In the town a case spreads until admission, from person to person, and the reproduction
+# number aimed at is that of the rest. Tags: Source = a
+# published number, Derived = computed from sources, Fitted = tuned in the model to a published
+# target (the targets are in [targets] below; `python -m epidemic_sandbox.calibrate sars2003`
+# measures them), Estimate = no number found, so a reasoned guess, Model = a modelling convention.
+model = "seiqr"
+# Model: a scenario choice, not a property of the disease.
+initial_infected = 15
+
+[parameters]
+# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
+#   the household attack rate (targets.household_attack_rate). Measured (16 runs, within households
+#   only, with the default admission, children as susceptible as in age_effects): 0.042 gives 6.9 %
+#   (0.02 gave 4.5 % and 0.04 7.7 % with children as susceptible as adults).
+transmission = 0.049
+# Model: the 2 m of the setting's own description of droplet spread; no source measures a distance.
+contact_distance = 2.0
+# Fitted: how much more easily the virus passes between people of different households than within
+#   one per hour within contact distance; the target is the reproduction number from person to person
+#   outside hospitals before the alert (targets.reproduction_number). Measured (24 runs in a town of
+#   30,000, admission after 4.85 days, with the other values as here): 38 gives 0.97, 55 gives 1.49.
+community_factor = 44.0
+# Source: mean incubation period 4.6 days (95% CI 3.8-5.8) in 1,755 Hong Kong patients (Leung et al.
+#   2004, Ann Intern Med); infectiousness begins with the symptoms: no transmission before them was
+#   reported (Lipsitch et al. 2003, Science) and less than 11 % of transmission could be before them
+#   (Fraser et al. 2004, PNAS).
+incubation_days = 4.6
+# Source: the mean time from onset to admission in Hong Kong fell from 4.85 days (26 February to
+#   25 March 2003) to 3.67 days (2-15 April), after the WHO alert of 12 March (Donnelly et al. 2003,
+#   Lancet 361:1761). The default scenario is the outbreak under control.
+detection_delay_days = 3.67
+# Derived: the mean serial interval of the cases that fell ill in the first two weeks in Singapore,
+#   before full-scale control, was 10.0 days (Lipsitch et al. 2003). For constant infectiousness
+#   from the onset it is the incubation period plus half the infectious period: 2 x (10.0 - 4.6) =
+#   10.8 days from the onset, minus the delay: the time a case nobody recognised spreads after it.
+#   The viral load peaks about 10 days after the onset (Peiris et al. 2003, Lancet), so constant
+#   infectiousness is a simplification; it matters only for undetected cases, which the default
+#   scenario does not have.
+undetected_days = 7.1
+# Derived: isolation lasts until the infection would have ended (the constraint 1/gamma2 = 1/gamma1
+#   - 1/alpha of Chowell et al. 2003), as long as the undetected period.
+quarantine_days = 7.1
+# Source: the Hong Kong estimates are of cases admitted to hospital (Donnelly et al. 2003), and by the
+#   end of the epidemic more than 95 % of the infectious time was spent in hospital (Cori et al. 2009,
+#   PLoS Comput Biol): every case is recognised and admitted.
+detection_coverage = 1.0
+# Model: an admitted case is in hospital, away from the town, and infects nobody in it (those it
+#   infects in hospital, health workers and patients, are outside the town).
+quarantine_infectiousness = 0.0
+# Derived: stays with the dispersion of the serial interval of Singapore over the whole outbreak,
+#   SD 3.8 days at a mean of 8.4 (Lipsitch et al. 2003): a coefficient of variation of 0.45, the gamma
+#   shape 1 / 0.45^2 = 4.9.
+duration_shape = 4.9
+# Source: case fatality by age, WHO 7 May 2003 (disease outbreak news, update 49): below 1 % up to
+#   24 years, 6 % at 25 to 44, 15 % at 45 to 64, greater than 50 % from 65. The base is the 6 % of the
+#   age group 25-44 and the age effects below are the other bands divided by it. Estimate: for the
+#   youngest, 0.5 %, a choice within "below 1 %"; for the oldest the lower bound of "greater than
+#   50 %", 50 %. Every case had symptoms (only 0.19 % of 1,068 contacts without symptoms had
+#   antibodies, Leung et al. 2004, Emerg Infect Dis), so cases are infections.
+fatality = 0.06
+# Derived: the mean time from the onset to death was 23.7 days (95% CI 22.0-25.3) in Hong Kong (Leung
+#   et al. 2004, Ann Intern Med). Those who die of it are taken ill gravely at the end of the
+#   isolation, 3.67 + 7.1 = 10.8 days after the onset, so 23.7 - 10.8 = 12.9 days later.
+death_delay_days = 12.9
+# Model: SARS died out within a year, so the duration of immunity does not matter.
+immunity_days = 36500
+immunity_protection = 1.0
+# Derived: before admission a case has fever and feels ill but nobody knows it is SARS, so they
+#   behave as people with a confirmed respiratory infection do: 40 % of the PCR-confirmed episodes of
+#   influenza A in the community took time off work, education or childcare (Fragaszy et al. 2018,
+#   Influenza Other Respir Viruses), and every SARS case had symptoms.
+stay_home = 0.40
+# Estimate: of those who still went out, a third skipped leisure (Van Kerckhove et al. 2013, Am J
+#   Epidemiol: contacts at leisure 0.06 and at work or school 0.09 of the usual; 1 - 0.06 / 0.09).
+limit_outings = 0.33
+# Source: of 1,068 close contacts of SARS patients in Hong Kong who had no symptoms, 2 had antibodies
+#   (0.19 %; Leung et al. 2004, Emerg Infect Dis 10(9)): an infection almost always led to illness.
+#   No course without symptoms.
+asymptomatic_share = 0.0
+# Not found: a measured variation of susceptibility between people.
+susceptibility_cv = 0.0
+# Fitted: the gamma shape of how infectious an infection is; the target is the dispersion of the
+#   number of people one case infected (targets.dispersion_k), to which the town's own variation
+#   adds. Measured (24 runs): 0.16 gives 0.11.
+infectiousness_dispersion = 0.25
+
+[age_effects]
+# Fitted: the susceptibility of children relative to adults; the target is the share of the cases
+#   under 18 (targets.share_under_18). Even with transmission only within households, children are
+#   31 % of the infections of the model at equal susceptibility, against 6 % in Hong Kong, so they
+#   caught it much less than their contacts would make them. Why is not known: lower exposure (adults
+#   were isolated early), lower susceptibility or milder infections that were not recognised (Leung
+#   and Chiu 2004, Paediatr Respir Rev). Measured (24 runs): 0.15 gives 6.1-6.2 %.
+susceptibility = [[0, 18, 0.15], [18, 120, 1.0]]
+# Source: WHO, 7 May 2003, as multiples of the 6 % of the base age group: 0.5 / 6 = 0.0833,
+#   6 / 6 = 1, 15 / 6 = 2.5 and 50 / 6 = 8.333.
+fatality = [[0, 25, 0.0833], [25, 45, 1.0], [45, 65, 2.5], [65, 120, 8.333]]
+
+# What the Fitted values were fitted to, and what the disease is checked against (not fitted).
+[targets.household_attack_rate]
+# 188 of 2,139 household members (8 %, 95% CI 7.0-9.2), Hong Kong 2003, with the cases admitted.
+value = 0.08
+low = 0.070
+high = 0.092
+source = "Lau et al. 2004, Emerg Infect Dis 10(2):235"
+[targets.reproduction_number]
+# Derived: Hong Kong before the WHO alert 3.6 (3.1-4.2; Wallinga and Teunis 2004, Am J Epidemiol),
+# without the 49.3 % of the infections in clinics, hospitals and nursing homes and the 18.8 % of
+# Amoy Gardens (Leung et al. 2004): 3.6 x 0.319 = 1.15 (0.99-1.34). The town's care homes are a
+# small part of the first share (an Estimate: Leung et al. do not split it). Measured with the
+# admission delay of before the alert.
+value = 1.15
+low = 0.99
+high = 1.34
+source = "Wallinga and Teunis 2004; Leung et al. 2004"
+with = { detection_delay_days = 4.85 }
+[targets.reproduction_number_after_alert]
+# Hong Kong after the alert (Wallinga and Teunis 2004), with all the measures of the time, not
+# only the faster admission; the town has only the faster admission, so it is a check: the
+# outbreak has to die out (R below 1).
+measure = "reproduction_number"
+value = 0.7
+low = 0.0
+high = 1.0
+source = "Wallinga and Teunis 2004, Am J Epidemiol 160:509"
+[targets.dispersion_k]
+# Singapore 2003 (90% CI 0.11-0.64); Beijing 0.17.
+value = 0.16
+low = 0.11
+high = 0.64
+source = "Lloyd-Smith et al. 2005, Nature 438:355"
+with = { detection_delay_days = 4.85 }
+[targets.share_under_18]
+# About 110 of 1,800 cases in Hong Kong were under 18 ("only 6 %"); the binomial 95 % interval. A
+# check: children were less exposed (adults were isolated early) and no susceptibility difference
+# was published (Leung and Chiu 2004).
+value = 0.061
+low = 0.050
+high = 0.072
+source = "Leung TF et al. 2003, Paediatr Respir Rev"
+with = { detection_delay_days = 4.85 }
+[targets.onset_to_death]
+value = 23.7
+low = 22.0
+high = 25.3
+source = "Leung et al. 2004, Ann Intern Med 141:662"

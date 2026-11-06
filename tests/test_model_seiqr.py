@@ -9,15 +9,17 @@ import math
 
 import numpy as np
 import pytest
-from cited_numbers import check_default_numbers, check_demo_numbers
-from config_factory import CONFIG_DIRECTORY, LIBRARY, make_model
+from cited_numbers import check_default_numbers, check_disease_numbers
+from config_factory import LIBRARY, disease_of, make_model
 from disease_helpers import ONE_DAY, SURE, advance, count_in, new_state, place
 from mean_field import final_size, integrate, run_well_mixed
 from synthetic_models import LatentModel
 from test_epidemic_model import arranged_model, put_into_state, run
 
 from epidemic_sandbox.disease_models.disease_model_abstract import (
+    ASYMPTOMATIC,
     DEAD,
+    DYING,
     EXPOSED,
     INFECTIOUS,
     RECOVERED,
@@ -28,6 +30,10 @@ from epidemic_sandbox.disease_models.seiqr import QUARANTINED, UNDETECTED, Seiqr
 IDENTICAL = {"susceptibility_cv": 0.0, "infectiousness_dispersion": 0.0}
 SHARP = {"duration_shape": 50.0}
 STATES = list(SeiqrModel.STATE_COLORS)
+ODE_STATES = [
+    STATES.index(state)
+    for state in (SUSCEPTIBLE, EXPOSED, INFECTIOUS, UNDETECTED, QUARANTINED, RECOVERED)
+]
 
 
 def seiqr(step_days=ONE_DAY, **parameters) -> SeiqrModel:
@@ -48,10 +54,19 @@ def test_the_states_and_their_order_are_the_seiqr_course_with_a_state_for_the_un
         INFECTIOUS,
         UNDETECTED,
         QUARANTINED,
+        ASYMPTOMATIC,
         RECOVERED,
+        DYING,
         DEAD,
     ]
-    assert SeiqrModel.course_states() == {EXPOSED, INFECTIOUS, UNDETECTED, QUARANTINED, RECOVERED}
+    assert SeiqrModel.course_states() == {
+        EXPOSED,
+        INFECTIOUS,
+        UNDETECTED,
+        QUARANTINED,
+        ASYMPTOMATIC,
+        RECOVERED,
+    }
 
 
 def test_everybody_who_is_not_susceptible_spreads_only_while_infectious_or_isolated():
@@ -59,6 +74,7 @@ def test_everybody_who_is_not_susceptible_spreads_only_while_infectious_or_isola
     disease_state, _ = new_state(model, population=len(STATES))
     disease_state.state[:] = np.arange(len(STATES))
     weights = dict(zip(STATES, model.infectious_weight(disease_state).tolist(), strict=True))
+    assert weights.pop(ASYMPTOMATIC) > 0
     assert weights == {
         SUSCEPTIBLE: 0.0,
         EXPOSED: 0.0,
@@ -66,6 +82,7 @@ def test_everybody_who_is_not_susceptible_spreads_only_while_infectious_or_isola
         UNDETECTED: 1.0,
         QUARANTINED: 0.25,
         RECOVERED: 0.0,
+        DYING: 0.0,
         DEAD: 0.0,
     }
 
@@ -137,14 +154,14 @@ def test_the_share_detected_is_the_detection_coverage(coverage):
     population = 40_000
     disease_state, rng = new_state(model, population)
     place(model, disease_state, rng, np.arange(population), INFECTIOUS)
-    for _ in range(6):  # the delay is 3.4 days, sharp: nobody is still waiting after 6 days
+    for _ in range(5):  # the delay is 3 days, sharp: nobody is still waiting after 5 days
         advance(model, disease_state, rng)
     assert share_in(model, disease_state, QUARANTINED) == pytest.approx(
         coverage, abs=4 * math.sqrt(max(coverage * (1 - coverage), 1e-4) / population) + 1e-3
     )
     assert share_in(model, disease_state, UNDETECTED) + share_in(
         model, disease_state, QUARANTINED
-    ) == pytest.approx(1.0)
+    ) == pytest.approx(1.0, abs=1e-3)  # a few recover in 5 days: delay plus stay is 8 +- 0.8
 
 
 def test_the_share_detected_depends_on_age_through_the_branching_effect_and_is_capped_at_one():
@@ -338,7 +355,7 @@ def test_with_exponential_stays_the_mean_course_follows_the_seiqr_equations():
                 duration_shape=1.0,
                 **p,
                 **IDENTICAL,
-            )[1][:, :6]
+            )[1][:, ODE_STATES]
             / population
             for seed in range(runs)
         ]
@@ -579,12 +596,14 @@ def test_the_hover_card_of_an_isolated_person_shows_the_reduced_infectiousness()
     assert health["infectiousness"] == pytest.approx(0.3)
 
 
-def test_the_demo_disease_is_a_seiqr_with_a_detected_majority_and_age_dependent_fatality():
-    demo = LIBRARY.catalog["demo_seiqr"]
-    assert demo.model == "seiqr" and (CONFIG_DIRECTORY / "diseases" / "demo_seiqr.toml").exists()
-    model = SeiqrModel(1 / 48, age_effects=demo.age_effects, **demo.parameters)
+def test_the_disease_is_a_seiqr_with_every_case_admitted_and_age_dependent_fatality():
+    definition = LIBRARY.catalog[disease_of("seiqr")]
+    assert definition.model == "seiqr"
+    model = SeiqrModel(1 / 48, age_effects=definition.age_effects, **definition.parameters)
     parameters = model.parameters
-    assert 0.5 < parameters["detection_coverage"] < 1.0
+    # every case is recognised and taken to hospital, where it infects nobody in the town
+    assert parameters["detection_coverage"] == 1.0
+    assert parameters["quarantine_infectiousness"] == 0.0
     assert parameters["detection_delay_days"] < parameters["undetected_days"]
     assert model.mean_field_r0(10.0) > 1.0
     ages = np.array([10, 30, 55, 80])
@@ -622,24 +641,43 @@ def test_prompt_and_tight_isolation_reduces_the_spread_in_the_town():
     assert max(isolated) < min(free) - 0.1
 
 
-# (values both the demo disease and the model default have, demo-only values, age effects)
+# (values both the disease and the model default have, the disease's own values, age effects)
 SOURCED = (
-    {  # Leung et al. 2004, Donnelly et al. 2003, Wallinga and Teunis 2004
-        "incubation_days": 4.6,
-        "detection_delay_days": 3.4,
-        "undetected_days": 7.4,
-        "quarantine_days": 7.4,
-        "detection_coverage": 0.8,
-        "quarantine_infectiousness": 0.5,
+    {"incubation_days": 4.6},  # Leung et al. 2004
+    {
+        "detection_delay_days": 3.67,  # Donnelly et al. 2003
+        "undetected_days": 7.1,
+        "quarantine_days": 7.1,
+        "detection_coverage": 1.0,
+        "quarantine_infectiousness": 0.0,
+        "fatality": 0.06,  # WHO 2003
+        "death_delay_days": 12.9,  # Leung et al. 2004
+        "transmission": 0.049,
+        "community_factor": 44.0,
+        "duration_shape": 4.9,  # Lipsitch et al. 2003
+        "infectiousness_dispersion": 0.25,
+        "stay_home": 0.40,
     },
-    {"fatality": 0.1, "transmission": 0.8},
-    {"fatality": [[0, 25, 0.05], [25, 45, 0.6], [45, 65, 1.5], [65, 120, 5.0]]},  # WHO 2003
+    {
+        "fatality": [[0, 25, 0.0833], [25, 45, 1.0], [45, 65, 2.5], [65, 120, 8.333]],  # WHO 2003
+        "susceptibility": [[0, 18, 0.15]],
+    },
 )
+# the model's own defaults: the home isolation of Chowell et al. 2003 (Table 1 and the model's own
+# constraint), not the admission to hospital of the disease of the catalog
+DEFAULTS = {
+    "incubation_days": 4.6,
+    "detection_delay_days": 3.0,
+    "undetected_days": 7.8,
+    "quarantine_days": 7.8,
+    "detection_coverage": 0.77,
+    "quarantine_infectiousness": 0.38,
+}
 
 
-def test_the_demo_disease_has_the_numbers_its_comment_cites():
-    check_demo_numbers("seiqr", *SOURCED)
+def test_the_disease_has_the_numbers_its_comment_cites():
+    check_disease_numbers("seiqr", *SOURCED)
 
 
 def test_the_model_defaults_are_the_cited_numbers():
-    check_default_numbers("seiqr", SOURCED[0])
+    check_default_numbers("seiqr", DEFAULTS)

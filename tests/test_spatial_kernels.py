@@ -4,6 +4,7 @@ import pytest
 from epidemic_sandbox.spatial_kernels import (
     build_grid,
     count_infectious_contacts,
+    count_infectious_contacts_by_household,
     find_pairs,
     move_toward,
 )
@@ -17,12 +18,51 @@ def test_grid_contacts_match_brute_force_with_weights(count, size, radius):
     x, y = rng.random(count) * size, rng.random(count) * size
     weights = (rng.random(count) < 0.2) * rng.choice([0.5, 1.0, 2.0], count).astype(np.float32)
     susceptible = weights == 0
+    venue = rng.integers(-1, 3, count)
     cells = max(1, min(int(size // radius), int(np.sqrt(count))))
     grid = build_grid(x, y, size, cells)
-    fast = count_infectious_contacts(x, y, susceptible, weights, *grid, cells, radius)
+    fast = count_infectious_contacts(x, y, susceptible, weights, venue, *grid, cells, radius)
     squared = (x[:, None] - x[None, :]) ** 2 + (y[:, None] - y[None, :]) ** 2
-    brute = ((squared <= radius**2) * weights[None, :]).sum(axis=1) * susceptible
+    together = (venue[:, None] == venue[None, :]) & (venue[:, None] >= 0)
+    brute = ((squared <= radius**2) * together * weights[None, :]).sum(axis=1) * susceptible
     assert fast == pytest.approx(brute, abs=1e-4)
+
+
+def test_people_in_different_venues_or_on_the_way_are_not_in_contact():
+    x, y = np.zeros(4), np.zeros(4)
+    weights = np.array([0.0, 1.0, 1.0, 1.0], np.float32)
+    venue = np.array([7, 7, 8, -1])  # the same room, behind a wall, on the way
+    grid = build_grid(x, y, 10.0, 1)
+    fast = count_infectious_contacts(x, y, weights == 0, weights, venue, *grid, 1, 2.0)
+    assert fast[0] == pytest.approx(1.0)
+    venue[0] = -1
+    fast = count_infectious_contacts(x, y, weights == 0, weights, venue, *grid, 1, 2.0)
+    assert fast[0] == 0.0
+
+
+def test_contacts_from_the_own_household_are_counted_separately():
+    rng = np.random.default_rng(3)
+    count, size, radius = 400, 60.0, 9.0
+    x, y = rng.random(count) * size, rng.random(count) * size
+    household = rng.integers(0, 120, count).astype(np.int32)
+    weights = (rng.random(count) < 0.25) * rng.choice([0.5, 1.0], count).astype(np.float32)
+    susceptible = weights == 0
+    venue = np.where(rng.random(count) < 0.5, household, 1000).astype(np.int64)
+    cells = int(size // radius)
+    grid = build_grid(x, y, size, cells)
+    contacts, own = count_infectious_contacts_by_household(
+        x, y, susceptible, weights, household, venue, *grid, cells, radius
+    )
+    near = (x[:, None] - x[None, :]) ** 2 + (y[:, None] - y[None, :]) ** 2 <= radius**2
+    near &= venue[:, None] == venue[None, :]
+    same = household[:, None] == household[None, :]
+    assert contacts == pytest.approx(
+        ((near * weights[None, :]).sum(axis=1) * susceptible), abs=1e-4
+    )
+    assert own == pytest.approx(
+        (((near & same) * weights[None, :]).sum(axis=1) * susceptible), abs=1e-4
+    )
+    assert own.sum() > 0 and own.sum() < contacts.sum()
 
 
 def test_grid_lists_every_person_exactly_once():
@@ -81,11 +121,17 @@ def test_found_pairs_match_brute_force_between_selected_people(radius):
     count, size = 400, 100.0
     x, y = rng.random(count) * size, rng.random(count) * size
     selected = rng.random(count) < 0.6
+    venue = rng.integers(-1, 2, count)
     cells = max(1, min(int(size // radius), int(np.sqrt(count))))
-    first, second = find_pairs(x, y, selected, *build_grid(x, y, size, cells), cells, radius)
+    first, second = find_pairs(x, y, selected, venue, *build_grid(x, y, size, cells), cells, radius)
     found = {tuple(sorted(pair)) for pair in zip(first.tolist(), second.tolist(), strict=True)}
     squared = (x[:, None] - x[None, :]) ** 2 + (y[:, None] - y[None, :]) ** 2
+    together = (venue[:, None] == venue[None, :]) & (venue[:, None] >= 0)
     near = np.argwhere(
-        (squared <= radius**2) & selected[:, None] & selected[None, :] & ~np.eye(count, dtype=bool)
+        (squared <= radius**2)
+        & together
+        & selected[:, None]
+        & selected[None, :]
+        & ~np.eye(count, dtype=bool)
     )
     assert found == {tuple(sorted(pair)) for pair in near.tolist()}

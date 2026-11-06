@@ -1,0 +1,157 @@
+# Measles (SEPIR): after the latent period comes the prodrome (fever, cough, running nose), in which
+# a person already spreads but nobody knows it is measles, then the rash. Tags: Source = a published number, Derived = computed from sources, Fitted = tuned
+# in the model to a published target (the targets are in [targets] below; `python -m
+# epidemic_sandbox.calibrate measles` measures them), Estimate = no number found, so a reasoned guess
+# (the reasoning is given), Model = a modelling convention.
+model = "sepir"
+# Model: a scenario choice, not a property of the disease.
+initial_infected = 15
+enabled = true
+
+[parameters]
+# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
+#   the household attack rate among susceptible people (targets.household_attack_rate). Measured (16
+#   runs, nobody immune, transmission within households only): 0.15 gives 73 %, 0.20 83 %, 0.25 89 %.
+transmission = 0.23
+# Estimate: no source gives a distance. Measles spreads through the air of rooms (CDC: in closed
+#   areas for up to 2 hours), so everybody in the same room is exposed, which is much more than the
+#   2 m of droplets. Contacts count only inside one venue (a home, a class, a workplace, a shop), so
+#   10 m stands for the room: it takes in the whole of a class or a small workplace.
+contact_distance = 10.0
+# Fitted: how much more easily the virus passes between people of different households than within
+#   one per hour within contact distance (household hours include the night); the target is the
+#   basic reproduction number (targets.reproduction_number). Measured (32 runs in a town of 30,000,
+#   nobody immune, from one case): 8 gives 12.4, 12 gives 16.3-17.1, 18 gives 18.9-19.5; 10.5 gives
+#   14.4 (16 runs from 10 cases).
+community_factor = 10.5
+# Derived: the rash appears 14 days after exposure on average (range 7-21) and a patient is
+#   transmissible from 4 days before the rash (CDC Pink Book, chapter 13): 14 - 4 = 10 days.
+latent_days = 10.0
+# Source: transmissible from 4 days before the rash (CDC Pink Book, chapter 13; the same in the WHO
+#   fact sheet). These are the days of the prodrome, before anybody knows it is measles, so people
+#   go about their days.
+presymptomatic_days = 4.0
+# Derived: transmissible until 4 days after the rash appears (CDC Pink Book), split into the first
+#   two days at full infectiousness and two waning ones (Model: no source splits them).
+infectious_days = 2.0
+waning_days = 2.0
+# Estimate: the infectiousness of the last two days after the rash relative to the first.
+#   Infectiousness rises markedly around the onset of symptoms (Klinkenberg and Nishiura 2011, J
+#   Theor Biol) and falls after the rash, by how much is not measured: the middle, 0.5. It hardly
+#   matters: from 0.3 to 0.8 the serial interval stays at 11.7-11.8 days and the reproduction number
+#   changes by 5 % (32 runs each), because most people stay at home after the rash.
+waning_infectiousness = 0.5
+# Model: the same daily infectiousness in the prodrome as at the rash: transmissible from 4 days
+#   before to 4 days after the rash (CDC) with no profile given.
+presymptomatic_infectiousness = 1.0
+# Derived: the measles incubation period has a dispersion of 1.23 (Lessler et al. 2009, Lancet
+#   Infect Dis, log-normal fit), a coefficient of variation of 0.21; a gamma distribution of
+#   the same variation has the shape 1 / 0.21^2 = 23.
+duration_shape = 23.0
+# Derived: deaths among reported measles cases of known age in the EU/EEA, 2019 and 2024 pooled
+#   (ECDC annual epidemiological reports; 12,435 cases of known age in 2019 (of 13,200) and
+#   35,212 in 2024; shares of cases by age and deaths by age are printed in the reports). The
+#   base is the rate of the age group 1-4 years, 10 deaths among 13,769 cases = 0.000726; the age
+#   effects below are the rates of the other groups divided by it, so every age has the sourced
+#   rate whatever the age structure of the town is. Over all ages and all 47,647 cases the rate is
+#   0.069 %. The Czech Republic is taken as a developed economy. The same level is found for
+#   children aged 1-4 years by a WHO expert group for the developed economies of the European
+#   Region (0.05 %; 0.1-0.5 % for economies in transition; Wolfson et al. 2009, Int J Epidemiol,
+#   Table 2) and in Switzerland (0.04-0.08 % of reported cases in 1955-74; Friedauer et al.
+#   2025, Am J Epidemiol, Table 1). Caveats: the counts are small, 22 of the 23 deaths of 2024 and
+#   a large part of the cases were in Romania, and a reported case is not every infection. Higher
+#   levels exist elsewhere: 0.24 % in the Americas in 2025 (PAHO, measles bulletin, data to week
+#   53 of 2025), 0.32 % in the United States outbreak of 2025 (Friedauer et al.), 0.2 % in the
+#   EU/EEA in 2018 (37 deaths, mostly Romania; ECDC), and 0 to 40 % in community studies in
+#   poorer countries (Wolfson et al.). The age pattern is in age_effects.
+fatality = 0.000726
+# Source: lifelong immunity after recovery (Peter Panum 1846, as stated in the CDC Pink Book).
+immunity_days = 36500
+immunity_protection = 1.0
+# Estimate: from the rash on, measles is recognised (a notifiable disease); people ill with
+#   influenza-like illness cut their contacts at work or school to 0.09 and at leisure to 0.06 of the
+#   usual (Van Kerckhove et al. 2013, Am J Epidemiol), so 91 % stay at home and, of the rest, one
+#   third skip leisure and errands (1 - 0.06 / 0.09 = 0.33). Measles is at least as debilitating.
+#   Before the rash (the prodrome) people behave as usual.
+stay_home = 0.91
+limit_outings = 0.33
+# Not found: a share of infections without symptoms among people without immunity. Measles without
+#   symptoms is described in people with some immunity (vaccinated people, with an immune response
+#   from before), whom the model counts as immune. No course without symptoms.
+asymptomatic_share = 0.0
+# Not found: a measured variation of susceptibility between people. Left at 0: any other number
+#   would be an invention, and the variation of infectiousness below already spreads the outcomes.
+susceptibility_cv = 0.0
+# Model: no measurement of how much measles cases differ in how infectious they are was found. The
+#   dispersion of the number of people one case infected in outbreaks of the United States and
+#   Canada (k = 0.21-0.23, Lloyd-Smith et al. 2005, Nature) was measured in populations about 95 %
+#   vaccinated and mostly reflects how the unvaccinated cluster ("heterogeneous vaccination coverage
+#   is an important environmental factor"), which the town has itself; so none is added.
+infectiousness_dispersion = 0.0
+# Derived: in London 1911, deaths of measles came 3 to more than 21 days after the rash, the median
+#   in the 10-14 days band (42 deaths, Acton, report of the Medical Officer of Health; mean 14.6 days
+#   from the onset in Paddington 1910, 65 deaths); no modern series was found. The infectious period
+#   ends 4 days after the rash, so 12 - 4 = 8 days. Before antibiotics; a historical figure. Those who
+#   die of it are gravely ill for these days, away from everybody.
+death_delay_days = 8.0
+# Source: 93.0 % (95 % CI 92.0-93.9) of 3,111 people aged 1-64 had measles IgG antibodies in the
+#   national serological survey of the Czech Republic in 2013 (Tomaskova et al. 2018, Cent Eur J
+#   Public Health 26:22-27, Table 1). It is the reference share; the age effect below gives the
+#   share of each age.
+initial_immune = 0.93
+
+[age_effects]
+# Derived: deaths and cases by age in the EU/EEA, 2019 and 2024 pooled (ECDC annual epidemiological
+#   reports; the age shares of cases are those printed there: 2019 11, 17, 11, 6, 7, 17 and 32 %,
+#   2024 13, 33.1, 16, 11.6, 8.8, 6.5 and 10.9 % for under 1, 1-4, 5-9, 10-14, 15-19, 20-29 and 30+
+#   years; deaths 2019 2, 1, 1, 0, 1, 2, 3 and 2024 5, 9, 0, 0, 0, 2, 7). Pooled: under 1 year
+#   7 deaths among 5,945 cases (0.118 %), 1-4 years 10 of 13,769 (0.073 %), 5-9 years 1 of 7,002
+#   (0.014 %), 10-19 years 1 of 8,800 (0.011 %), 20-29 years 4 of 4,403 (0.091 %), 30 and older
+#   10 of 7,817 (0.128 %); as multiples of the 0.073 % of the base age group 1-4 years: 1.621, 1,
+#   0.197, 0.157, 1.252 and 1.762. The fall from infancy to school age
+#   agrees with Wolfson et al. 2009 (highest under 5 years); the rise in adults agrees with the
+#   statements that complications are more common in adults (Perry and Halsey 2004; WHO) and with
+#   the deaths in the WHO Mortality Database, 75 % of which (131 of 174 in 14 European countries
+#   1996-2024, Denmark left out for implausible registrations) were at 15 years and older. The
+#   PAHO 2025 bulletin has a different shape (0.087 % at 20-29 and 0.064 % at 30-39 against
+#   0.368 % at 1-4 years), so the sources disagree; the groups here have 1 to 10 deaths each, so
+#   every number is rough. The oldest group covers all ages from 30 on: no source splits it.
+fatality = [[0, 1, 1.621], [1, 5, 1.0], [5, 10, 0.197], [10, 20, 0.157], [20, 30, 1.252], [30, 120, 1.762]]
+# Derived: seroprevalence by age in the same survey (Table 1), divided by the 93.0 % above. The
+#   survey was taken in 2013 and the town is of 2019, six years later. Children are protected by
+#   the vaccination schedule, which was the same, so their values stay with the age: 1 year 62.0 %
+#   (not all vaccinated yet at 15 months), 2-5 years 99.7 % (2-4 in the survey), 6-15 years
+#   95.3 % (5-9 in the survey). The immunity of adults belongs to their birth cohort (the gap of
+#   those born around 1970 is a cohort's), so their values move six years on: 16-20 years 94.3 %
+#   (10-14 in 2013), 21-25 91.7 %, 26-30 94.9 %, 31-40 91.8 %, 41-50 80.4 % (35-44 in 2013),
+#   51-60 97.0 %, 61-70 98.5 %, and from 71 the survey's figure for everybody over 45 with
+#   naturally induced immunity, 97.7 % (387 of 396), an extrapolation. Age 0: not vaccinated yet
+#   and maternal antibodies are not counted (they are gone within the first months).
+starting_share = [[0, 1, 0.0], [1, 2, 0.6667], [2, 6, 1.072], [6, 16, 1.0247], [16, 21, 1.014], [21, 26, 0.986], [26, 31, 1.0204], [31, 41, 0.9871], [41, 51, 0.8645], [51, 61, 1.043], [61, 71, 1.0591], [71, 120, 1.0505]]
+
+# What the Fitted values were fitted to, and what the disease is checked against (not fitted).
+[targets.household_attack_rate]
+# 24 of 28 susceptible household members infected (86 %; Wilson 95 % interval 69-94 %), the
+# Netherlands 1999-2000; 91 % of susceptible pupils, 90 % of all susceptibles (157 of 174); CDC:
+# "more than 90 %" in close-contact settings. Measured with nobody immune.
+value = 0.86
+low = 0.69
+high = 0.94
+source = "van den Hof et al. 2001, Emerg Infect Dis 7(7)"
+with = { initial_immune = 0.0 }
+[targets.reproduction_number]
+# The "often cited range of 12-18" (Guerra et al. 2017, Lancet Infect Dis 17:e420, which finds the
+# published estimates vary more widely); its middle. Measured with nobody immune.
+value = 15.0
+low = 12.0
+high = 18.0
+source = "Guerra et al. 2017, Lancet Infect Dis 17:e420"
+with = { initial_immune = 0.0 }
+[targets.generation_interval]
+# Mean serial interval 11.7 days (Vink et al. 2014, Am J Epidemiol); generation time and incubation
+# period both about 11-12 days (Klinkenberg and Nishiura 2011, J Theor Biol). A check.
+value = 11.7
+low = 11.0
+high = 12.5
+source = "Vink et al. 2014, Am J Epidemiol 180:865"
+with = { initial_immune = 0.0 }

@@ -1,0 +1,129 @@
+# Common cold caused by rhinoviruses (SIS): rhinovirus infection leaves immunity only against the one
+# type that caused it, and there are more than 100 types (Heikkinen and Jarvinen 2003, Lancet), so
+# for the pool of types a person is susceptible again once the infection is over and the disease
+# stays in a population. The model has no latent stage: the first symptoms come about 2 days after
+# infection (median 1.9 days, Lessler et al. 2009, Lancet Infect Dis) and the virus is found in the
+# nose within 8-10 hours (Heikkinen and Jarvinen 2003), so infectiousness starts early. A share of the
+# infections never has symptoms (they spread less and behave as usual). The model has no seasons and
+# does not tell the types apart. Tags: Source = a published number, Derived =
+# computed from sources, Fitted = tuned in the model to a published target (the targets are in
+# [targets] below; `python -m epidemic_sandbox.calibrate common_cold` measures them), Estimate = no
+# number found, so a reasoned guess (the reasoning is given), Model = a modelling convention.
+model = "sis"
+# Model: a scenario choice, not a property of the disease.
+initial_infected = 100
+enabled = true
+
+[parameters]
+# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
+#   the household attack rate (targets.household_attack_rate). Measured (16 runs of 21 days, the
+#   follow-up of the study, within households only, the first cases not counted again, with the
+#   age effect and the infections without symptoms below): 0.104 gives 36.2 %, 0.108 36.2 %, 0.115
+#   39.3 % (standard error about 1.7 points).
+transmission = 0.108
+# Model: the 2 m of the setting's own description of droplet spread; rhinoviruses also spread by
+#   hands and surfaces (Heikkinen and Jarvinen 2003), which the model does not have.
+contact_distance = 2.0
+# Fitted: how much more easily the virus passes between people of different households than within
+#   one per hour within contact distance; the target is how often people are infected in a year
+#   (targets.incidence_per_person_year). Measured (8 runs of 300 days in a town of 30,000 started
+#   from 5 % infected, the first 100 days left out, with the age effect and the infections from
+#   outside and without symptoms below): 3.6 gives 2.45 and 3.7 2.8 infections a year; by age at 3.7:
+#   0-4 years 5.7, 5-17 4.4, 18-29 3.3, 30-49 3.1, 50-64 2.1, 65-79 1.1. The cold is near its
+#   threshold: the rate falls steeply below this value.
+community_factor = 3.65
+# Estimate: the infection period inferred from US specimen data was 5.2 to 5.6 days in the four
+#   estimates for rhinovirus outbreaks (mean 5.4; Reis and Shaman 2018, Infect Dis Model, Table 5),
+#   near the middle of the 3 to 8 days of their prior, which the estimate was sensitive to. Virus
+#   peaks in the nose 48-72 hours after inoculation (Hendley and Gwaltney 2004); PCR finds it for a
+#   mean of 1.7 weeks (Byington et al. 2015, all viruses), longer than it is infectious; the illness
+#   lasts 7-10 days (Heikkinen and Jarvinen 2003).
+infectious_days = 5.4
+# Derived: the dispersion 1.68 (95% CI 1.36-2.01) of the rhinovirus incubation period (Lessler et al.
+#   2009), a coefficient of variation of 0.56, the gamma shape 1 / 0.56^2 = 3.2; no variation of the
+#   infectious period is published.
+duration_shape = 3.2
+# Not found: a rate of death per rhinovirus infection. Colds are self-limited (Heikkinen and
+#   Jarvinen 2003) and no figure for deaths in the community was found; left at 0 rather than
+#   invented.
+fatality = 0.0
+# Derived: 44.5 % of 2,505 US adults reported absence from work or school during a cold, usually 1
+#   to 2 days (Dicpinigaitis et al. 2015, Curr Med Res Opin, ACHOO survey); staying home 1.5 of the
+#   5.4 days is 0.445 x 1.5 / 5.4 = 0.12 of the time of those with a cold, as staying home for the
+#   whole infectious time (the average over the time is what counts). People without symptoms
+#   behave as usual.
+stay_home = 0.12
+# Estimate: of those who go out, some skip leisure and errands. People ill with influenza-like
+#   illness skip leisure in a third of cases (Van Kerckhove et al. 2013, Am J Epidemiol); colds keep
+#   people at home half as often as influenza-like illness (44.5 % against 91 %), so the same ratio:
+#   0.33 x 0.445 / 0.91 = 0.16 of those with a cold.
+limit_outings = 0.16
+# Source: 44 % of the rhinovirus episodes found by weekly swabs of whole households had no symptoms
+#   (56 % with symptoms; Byington et al. 2015, Clin Infect Dis 61:1217, as summed up in the editorial
+#   of the same issue, p. 1225).
+asymptomatic_share = 0.44
+# Derived: in households swabbed weekly for a year, the odds of a member's infection rose with the
+#   share of the other members infected by an odds ratio of 9.96 (95% CI 2.86-32.1) per unit for
+#   infected children of 5-17 years with symptoms and 3.33 (1.02-10.1) without (Adler et al. 2018,
+#   PLoS One 13:e0199388, Table 3); per infected member the effects (log odds) are in the ratio
+#   ln 3.33 / ln 9.96 = 0.52. The one age group with both estimates; the study found no transmission
+#   by adults at all and concludes that the symptomatic transmit more.
+asymptomatic_infectiousness = 0.52
+# Estimate: no length of rhinovirus infection without symptoms was found; the same as with symptoms.
+asymptomatic_days = 5.4
+# Derived: the town has all its workplaces, but 40.9 % of the employed in Czechia work outside the
+#   municipality where they live (census 2021, CZSO, "Ctyri z deseti zamestnanych vyjizdi za praci
+#   mimo obec obvykleho bydliste"), where colds go round as much as at home. 13.1 % of the infections
+#   of the town happen at work and lunch (python -m epidemic_sandbox.calibrate common_cold), so 0.409
+#   x 0.131 = 5.4 % of them would come from outside: 0.054 x 2.7 = 0.145 per person and year. They
+#   keep the cold in the town: a closed town of 3,000 lost it by chance in 6 of 16 runs of a year,
+#   with them in none of 16.
+outside_infections = 0.145
+# Not found: a measured variation of susceptibility between people. Left at 0: any other number
+#   would be an invention.
+susceptibility_cv = 0.0
+# Model: no dispersion of the number of people one case infects is published for rhinovirus; none
+#   is added to the variation the town itself makes.
+infectiousness_dispersion = 0.0
+
+[age_effects]
+# Fitted: the susceptibility of children of school age (5-17) relative to everybody else; the
+#   target is their rate of infection (targets.incidence_5_17). With everybody equally susceptible
+#   they caught twice as many (8.7 a year against 5.7 at 0-4 and 3.2 at 30-49), where the families
+#   followed by Byington et al. 2015 had 6.4 at 0-4, 4.0 at 5-17 and 3.3 at 18-39: immunity to the
+#   #   types already met grows with age, and the school-age children of the town meet many. Measured
+#   (as for community_factor): 0.55 brings them to 5.0 at 2.6. The contacts of every age are
+#   validated (python -m epidemic_sandbox.validate), so the difference is put on susceptibility.
+susceptibility = [[5, 18, 0.55]]
+
+# What the Fitted values were fitted to, and what the disease is checked against (not fitted).
+[targets.household_attack_rate]
+# Derived: in 8 families with a child who had a rhinovirus, followed for 3 weeks, 1.00 infections per
+# sibling (17) and 0.50 per parent (14), against 0.54 and 0.23 in 16 families whose child had no
+# rhinovirus (Peltola et al. 2008, J Infect Dis 197:382); the excess, weighted by the persons, is
+# 0.374. A very small study: the range is the binomial 95 % interval of 31 persons.
+value = 0.374
+low = 0.20
+high = 0.55
+source = "Peltola et al. 2008, J Infect Dis 197:382"
+days = 21
+[targets.incidence_per_person_year]
+# Derived: rhinovirus detection episodes (with and without symptoms) per person and year in
+# households with children, weekly PCR: by age 0-4 6.4, 5-17 4.0, 18-39 3.3, 40+ 1.75 (all viruses
+# 12.1, 7.5, 6.3 and 3.3, times the rhinovirus share of the episodes, 416 of 783; Byington et al.
+# 2015), weighted by the age structure of Czechia: 2.7. Low end: colds of adults 2-4 and children
+# 6-8 a year, rhinoviruses 30-50 % of them, 75 % of infections with symptoms (Heikkinen and
+# Jarvinen 2003), about 1.2 for the town; high end: the 3.9 of the households with children.
+value = 2.7
+low = 1.2
+high = 3.9
+source = "Byington et al. 2015, Clin Infect Dis 61:1217; Heikkinen and Jarvinen 2003"
+[targets.incidence_5_17]
+# Derived: 4.0 rhinovirus episodes per child and year at 5-17 in the households of Byington et al.
+# 2015 (7.5 for all viruses times 416 of 783); the range is that of children's colds, 6-8 a year,
+# 30-50 % of them rhinovirus, 75 % of infections with symptoms (Heikkinen and Jarvinen 2003): 2.4
+# to 5.3.
+value = 4.0
+low = 2.4
+high = 5.3
+source = "Byington et al. 2015, Clin Infect Dis 61:1217; Heikkinen and Jarvinen 2003"

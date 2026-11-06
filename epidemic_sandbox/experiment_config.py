@@ -14,10 +14,10 @@ from epidemic_sandbox.town import TownParameters, load_town_parameters
 DISEASE_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 ARENA_FILL_LIMIT = 0.5
 
-# Time resolution of the simulation, 30 minutes. Measured on the demo diseases (3,000 people, 8
-# seeds each), the share of people ever infected was 79, 70, 65, 66 and 66 % at 12, 24, 48, 96 and
-# 144 steps a day and the peak was the same from 48 on: a coarser step overestimates the spread, a
-# finer one only costs time in proportion.
+# Time resolution of the simulation, 30 minutes. Measured on the fictional demo diseases that the
+# real ones have replaced (3,000 people, 8 seeds each), the share of people ever infected was 79,
+# 70, 65, 66 and 66 % at 12, 24, 48, 96 and 144 steps a day and the peak was the same from 48 on:
+# a coarser step overestimates the spread, a finer one only costs time in proportion.
 STEPS_PER_DAY = 48
 
 WORLD_PARAMETERS = {

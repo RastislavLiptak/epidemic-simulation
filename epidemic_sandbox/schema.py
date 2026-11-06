@@ -76,7 +76,6 @@ def describe_preview(config: ExperimentConfig, town: TownParameters) -> dict:
         "diseases": {
             name: {
                 "mean_contacts": contacts[name],
-                "mean_field_r0": model.mean_field_r0(contacts[name]),
                 "household_risk": model.pair_transmission_probability(),
             }
             for name, model in models.items()

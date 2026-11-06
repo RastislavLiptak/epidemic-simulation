@@ -17,6 +17,7 @@ from config_factory import (
     CONFIG_DIRECTORY,
     LIBRARY,
     disease_definition,
+    disease_of,
     library_with,
     make_model,
 )
@@ -26,6 +27,7 @@ from synthetic_models import ChronicModel, ForkModel, VaccinationModel
 from epidemic_sandbox.disease_models import DISEASE_MODELS
 from epidemic_sandbox.disease_models.disease_model_abstract import (
     DEAD,
+    DYING,
     INFECTIOUS,
     SUSCEPTIBLE,
     DiseaseModelAbstract,
@@ -83,11 +85,15 @@ def allowed_transitions(model_class) -> set[tuple[str, str]]:
         if phase.branch_state is not None:
             moves.add((state, phase.branch_state))
         if phase.fatal:
-            moves.add((state, DEAD))
+            moves.add((state, DEAD))  # without a time to death
+            moves.add((state, DYING))
+            moves.add((DYING, DEAD))
     for state, rate in model_class.RATES.items():
         moves.add((state, rate.next_state))
     for state in (SUSCEPTIBLE, *model_class.PROTECTION):
         moves.add((state, model_class.INFECTION_ENTRY_STATE))
+        if model_class.INFECTION_BRANCH is not None:
+            moves.add((state, model_class.INFECTION_BRANCH.state))
     return moves
 
 
@@ -151,11 +157,11 @@ def test_a_model_runs_with_its_defaults_at_any_step_length(key):
 
 
 @pytest.mark.parametrize("key", KEYS)
-def test_a_demo_disease_with_comments_exists_in_the_catalog(key):
-    name = f"demo_{key}"
-    assert name in LIBRARY.catalog and LIBRARY.catalog[name].model == key
+def test_a_disease_with_comments_exists_in_the_catalog_for_every_model(key):
+    name = disease_of(key)
+    assert LIBRARY.catalog[name].model == key
     text = (CONFIG_DIRECTORY / "diseases" / f"{name}.toml").read_text()
-    assert text.startswith("#"), "a demo disease says what it is"
+    assert text.startswith("#"), "a disease file says what it is"
 
 
 # --- the transitions a run makes ------------------------------------------------------------------
@@ -193,6 +199,10 @@ def test_random_runs_keep_every_invariant_of_the_state_machine(key):
             assert disease_state.cumulative_infections >= disease_state.ever_infected.sum()
             for state in model_class.PHASES:
                 assert (disease_state.timer[after == names.index(state)] > 0).all(), state
+            if DYING in names:
+                dying = after == names.index(DYING)
+                assert (disease_state.timer[dying] > 0).all(), "the dying die when their time is up"
+                assert (model.infectious_weight(disease_state)[dying] == 0).all(), "nor spread"
             symptomatic = model_class.SYMPTOMATIC_STATES
             if symptomatic is None:
                 symptomatic = model_class.INFECTIOUS_STATES
@@ -325,8 +335,8 @@ def test_infectious_time_and_household_risk_match_the_simulated_courses(key):
 
 
 @pytest.mark.parametrize("key", KEYS)
-def test_the_preview_and_the_descriptions_are_valid_json_for_the_demo_disease(key):
-    config = demo_config(key, population=300, seed=1)
+def test_the_preview_and_the_descriptions_are_valid_json_for_the_disease(key):
+    config = disease_config(key, population=300, seed=1)
     preview = describe_preview(config, LIBRARY.town)
     for description in (
         describe_setup(LIBRARY),
@@ -334,15 +344,15 @@ def test_the_preview_and_the_descriptions_are_valid_json_for_the_demo_disease(ke
         preview,
     ):
         json.dumps(description, allow_nan=False)
-    r0 = preview["diseases"][f"demo_{key}"]["mean_field_r0"]
-    assert r0 is None or r0 > 1, "the demo disease can take off"
+    risk = preview["diseases"][disease_of(key)]["household_risk"]
+    assert 0 <= risk <= 1
 
 
-def demo_config(key, population, seed, steps_per_day=48):
+def disease_config(key, population, seed, steps_per_day=48):
     return library_with(steps_per_day).parse(
         {
             "world": {"population": population, "arena_area": 250_000, "seed": seed, "runs": 1},
-            "diseases": {f"demo_{key}": {"initial_infected": 10}},
+            "diseases": {disease_of(key): {"initial_infected": 10}},
         }
     )
 
@@ -351,9 +361,11 @@ def demo_config(key, population, seed, steps_per_day=48):
 
 
 @pytest.mark.parametrize("key", KEYS)
-def test_the_demo_disease_runs_in_a_town_and_every_person_can_be_described(key):
-    name = f"demo_{key}"
-    model = EpidemicModel(demo_config(key, population=300, seed=3, steps_per_day=24), LIBRARY.town)
+def test_the_disease_runs_in_a_town_and_every_person_can_be_described(key):
+    name = disease_of(key)
+    model = EpidemicModel(
+        disease_config(key, population=300, seed=3, steps_per_day=24), LIBRARY.town
+    )
     for _ in range(24 * 6):
         model.step()
     assert sum(model.state_counts()[name]) == model.population

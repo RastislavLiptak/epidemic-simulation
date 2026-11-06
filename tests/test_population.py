@@ -357,9 +357,9 @@ def write_town(tmp_path, old=None, new=None, age_table=None) -> Path:
         ('first_day = "2018-09-10"', 'first_day = "2018-09-11"', "must be a Monday"),
         ('first_day = "2018-09-10"', 'first_day = "September"', "Invalid isoformat"),
         ("mother_ages = [18, 50]", "mother_ages = [50, 18]", "increasing age range"),
-        ("[3, 0.20], [6, 0.88]", "[6, 0.20], [3, 0.88]", "mother_employment"),
+        ("[3, 0.217], [6, 0.88]", "[6, 0.217], [3, 0.88]", "mother_employment"),
         ("accompanied_under = 10", "accompanied_under = -1", "accompanied_under"),
-        ("staff_per_resident = 0.33", "staff_per_resident = -1", "staff_per_resident"),
+        ("staff_per_resident = 0.10", "staff_per_resident = -1", "staff_per_resident"),
         ("[50, 66, 0.00143]", "[66, 50, 0.00143]", "invalid age range"),
     ],
 )

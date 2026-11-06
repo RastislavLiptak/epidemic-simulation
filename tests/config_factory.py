@@ -13,6 +13,13 @@ WORLD = {"population": 200, "arena_area": 250_000, "seed": 1, "runs": 1}
 TEST_STEPS_PER_DAY = 24  # coarser than in the application, so that tests run fewer steps
 
 
+def disease_of(model_key: str) -> str:
+    """Name of the disease in the catalog that uses `model_key` (the first, if several)."""
+    names = sorted(name for name, disease in LIBRARY.catalog.items() if disease.model == model_key)
+    assert names, f"no disease in the catalog uses the model {model_key!r}"
+    return names[0]
+
+
 def disease_definition(model: str, initial_infected: int = 1, **parameters: float) -> dict:
     return {"model": model, "initial_infected": initial_infected, "parameters": parameters}
 

@@ -15,8 +15,8 @@ from disease_helpers import (
     state_names,
 )
 from synthetic_models import (
-    ASYMPTOMATIC,
     HOSPITAL,
+    MILD,
     VACCINATED,
     ChronicModel,
     ForkModel,
@@ -28,6 +28,7 @@ from synthetic_models import (
 from epidemic_sandbox.disease_models.disease_model_abstract import (
     COMMON_PARAMETERS,
     DEAD,
+    DYING,
     EXPOSED,
     INFECTIOUS,
     RECOVERED,
@@ -45,7 +46,7 @@ def short_fork(**parameters) -> ForkModel:
     return ForkModel(
         ONE_DAY,
         incubation_days=0.5,
-        asymptomatic_days=0.5,
+        mild_days=0.5,
         infectious_days=0.5,
         hospital_days=0.5,
         **SHARP,
@@ -58,36 +59,35 @@ def short_fork(**parameters) -> ForkModel:
 
 @pytest.mark.parametrize("share", [0.0, 0.25, 1.0])
 def test_a_branch_is_taken_with_the_configured_chance(share):
-    model = short_fork(asymptomatic_share=share)
+    model = short_fork(mild_share=share)
     disease_state, rng = new_state(model, population=40_000)
     place(model, disease_state, rng, np.arange(40_000), EXPOSED)
     advance(model, disease_state, rng)
-    taken = count_in(model, disease_state, ASYMPTOMATIC) / 40_000
+    taken = count_in(model, disease_state, MILD) / 40_000
     assert taken == pytest.approx(share, abs=0.01)
     assert (
-        count_in(model, disease_state, ASYMPTOMATIC) + count_in(model, disease_state, INFECTIOUS)
-        == 40_000
+        count_in(model, disease_state, MILD) + count_in(model, disease_state, INFECTIOUS) == 40_000
     ), "everybody takes one of the two ways"
 
 
 def test_the_chance_of_a_branch_depends_on_age_through_the_branching_effect():
     effects = {"branching": [[0, 15, 0.0], [65, 120, 2.0]]}
-    model = short_fork(asymptomatic_share=0.3, age_effects=effects)
+    model = short_fork(mild_share=0.3, age_effects=effects)
     ages = np.repeat([5, 40, 80], 100_000)
     disease_state, rng = new_state(model, population=300_000, age=ages)
     place(model, disease_state, rng, np.arange(300_000), EXPOSED)
     advance(model, disease_state, rng)
-    taken = (disease_state.state == list(model.STATE_COLORS).index(ASYMPTOMATIC)).reshape(3, -1)
+    taken = (disease_state.state == list(model.STATE_COLORS).index(MILD)).reshape(3, -1)
     assert taken.mean(axis=1) == pytest.approx([0.0, 0.3, 0.6], abs=0.01)
 
 
 def test_a_branching_effect_that_pushes_the_chance_above_one_means_certainty():
     effects = {"branching": [[0, 120, 5.0]]}
-    model = short_fork(asymptomatic_share=0.5, age_effects=effects)
+    model = short_fork(mild_share=0.5, age_effects=effects)
     disease_state, rng = new_state(model, population=1000)
     place(model, disease_state, rng, np.arange(1000), EXPOSED)
     advance(model, disease_state, rng)
-    assert count_in(model, disease_state, ASYMPTOMATIC) == 1000
+    assert count_in(model, disease_state, MILD) == 1000
 
 
 def test_death_is_settled_before_the_branch_among_the_survivors():
@@ -140,7 +140,7 @@ def test_age_effect_on_fatality_needs_a_model_where_somebody_can_die_of_it():
 
 
 def test_states_spread_with_their_own_relative_infectiousness():
-    model = ForkModel(ONE_DAY, asymptomatic_infectiousness=0.25)
+    model = ForkModel(ONE_DAY, mild_infectiousness=0.25)
     disease_state, rng = new_state(model, population=len(model.STATE_COLORS))
     disease_state.state[:] = np.arange(len(model.STATE_COLORS))
     assert dict(
@@ -148,10 +148,11 @@ def test_states_spread_with_their_own_relative_infectiousness():
     ) == {
         SUSCEPTIBLE: 0.0,
         EXPOSED: 0.0,
-        ASYMPTOMATIC: 0.25,
+        MILD: 0.25,
         INFECTIOUS: 1.0,
         HOSPITAL: 0.0,
         RECOVERED: 0.0,
+        DYING: 0.0,
         DEAD: 0.0,
     }
 
@@ -169,7 +170,7 @@ def test_only_symptomatic_states_make_people_stay_home_or_skip_outings():
     model = ForkModel(ONE_DAY, stay_home=1.0, limit_outings=1.0)
     disease_state, rng = new_state(model, population=10)
     place(model, disease_state, rng, [0], INFECTIOUS)
-    place(model, disease_state, rng, [1], ASYMPTOMATIC)
+    place(model, disease_state, rng, [1], MILD)
     place(model, disease_state, rng, [2], EXPOSED)
     assert disease_state.stays_home[:3].tolist() == [True, False, False]
     assert disease_state.limits_outings[:3].tolist() == [True, False, False]
@@ -231,6 +232,71 @@ def test_only_partially_protected_people_can_be_exposed():
         ONE_DAY, vaccination_rate=0.0, vaccine_protection=1.0, immunity_protection=0.5
     )
     assert complete.exposable_mask(disease_state).tolist() == [True, False, False, True, False]
+
+
+# --- infections from outside the town ------------------------------------------------------
+
+
+def test_outside_infections_reach_the_susceptible_at_their_yearly_rate_without_any_contact():
+    model = PlainModel(ONE_DAY, outside_infections=36.525, **UNIFORM)  # 0.1 a day
+    disease_state, rng = new_state(model, population=200_000)
+    advance(model, disease_state, rng, exposure=0)
+    share = disease_state.cumulative_infections / 200_000
+    assert share == pytest.approx(1 - math.exp(-0.1), abs=0.003)
+
+
+def test_outside_infections_add_their_hazard_to_that_of_the_contacts():
+    model = PlainModel(ONE_DAY, transmission=1 - math.exp(-0.2), outside_infections=36.525)
+    disease_state, rng = new_state(model, population=200_000)
+    disease_state.susceptibility[:] = 1.0
+    advance(model, disease_state, rng, exposure=1)
+    share = disease_state.cumulative_infections / 200_000
+    assert share == pytest.approx(1 - math.exp(-0.2 - 0.1), abs=0.004)
+
+
+def test_outside_infections_are_weakened_by_protection_and_scaled_by_the_interactions():
+    model = VaccinationModel(
+        ONE_DAY,
+        outside_infections=36.525,  # 0.1 a day
+        vaccination_rate=0.0,
+        vaccine_protection=0.75,
+        **UNIFORM,
+    )
+    disease_state, rng = new_state(model, population=400_000)
+    vaccinated = np.arange(400_000) >= 200_000
+    disease_state.state[vaccinated] = list(model.STATE_COLORS).index(VACCINATED)
+    halved = np.arange(400_000) % 2 == 0
+    relative = np.where(halved, 0.5, 1.0)
+    infected = np.zeros(400_000, np.bool_)
+    infected[model.draw_infections(disease_state, np.zeros(400_000, np.float32), rng, relative)] = 1
+    for group, hazard in (
+        (~vaccinated & ~halved, 0.1),
+        (~vaccinated & halved, 0.05),
+        (vaccinated & ~halved, 0.025),
+        (vaccinated & halved, 0.0125),
+    ):
+        assert infected[group].mean() == pytest.approx(1 - math.exp(-hazard), rel=0.06)
+
+
+def test_the_outside_infections_age_effect_scales_them_by_age():
+    model = PlainModel(
+        ONE_DAY,
+        outside_infections=36.525,  # 0.1 a day
+        age_effects={"outside_infections": [[0, 18, 1.0], [18, 120, 0.4]]},
+        **UNIFORM,
+    )
+    ages = np.repeat([10, 40], 100_000)
+    disease_state, rng = new_state(model, population=200_000, age=ages)
+    advance(model, disease_state, rng, exposure=0)
+    infected = disease_state.ever_infected.reshape(2, 100_000).mean(axis=1)
+    assert infected == pytest.approx([1 - math.exp(-0.1), 1 - math.exp(-0.04)], rel=0.05)
+
+
+def test_infections_from_outside_keep_the_disease_from_being_quiescent():
+    for rate, expected in ((0.5, False), (0.0, True)):
+        model = PlainModel(ONE_DAY, outside_infections=rate)
+        disease_state, _ = new_state(model, population=10)
+        assert model.is_quiescent(disease_state) is expected
 
 
 # --- spontaneous transitions (vaccination) --------------------------------------------------
@@ -313,6 +379,22 @@ def test_no_starting_share_means_everybody_but_the_cases_starts_susceptible():
     assert np.count_nonzero(disease_state.state) == 2
 
 
+def test_the_starting_share_age_effect_scales_the_share_by_age_and_caps_it_at_one():
+    effects = {"starting_share": [[0, 20, 0.0], [20, 60, 2.0], [60, 120, 4.0]]}
+    model = VaccinationModel(
+        ONE_DAY, initial_coverage=0.3, vaccination_rate=0.0, age_effects=effects
+    )
+    ages = np.repeat([10, 40, 80], 50_000)
+    disease_state, _ = new_state(model, population=150_000, age=ages)
+    vaccinated = (disease_state.state == list(model.STATE_COLORS).index(VACCINATED)).reshape(3, -1)
+    assert vaccinated.mean(axis=1) == pytest.approx([0.0, 0.6, 1.0], abs=0.005)
+
+
+def test_the_starting_share_age_effect_is_rejected_when_the_model_has_no_starting_share():
+    with pytest.raises(ValueError, match="starting share"):
+        ChronicModel(ONE_DAY, age_effects={"starting_share": [[0, 20, 0.5]]})
+
+
 # --- the end of the epidemic -------------------------------------------------------------
 
 
@@ -337,25 +419,25 @@ def test_a_running_vaccination_keeps_the_disease_from_being_quiescent():
 
 def test_courses_list_every_way_through_the_disease_with_its_probability():
     model = ForkModel(
-        ONE_DAY, asymptomatic_share=0.4, hospital_share=0.2, fatality=0.1, immunity_days=36500
+        ONE_DAY, mild_share=0.4, hospital_share=0.2, fatality=0.1, immunity_days=36500
     )
     courses = {
         tuple(state for state, _, _ in course.stays): course.probability
         for course in model.courses()
     }
     assert sum(courses.values()) == pytest.approx(1.0)
-    assert courses[(EXPOSED, ASYMPTOMATIC, RECOVERED)] == pytest.approx(0.4)
+    assert courses[(EXPOSED, MILD, RECOVERED)] == pytest.approx(0.4)
     assert courses[(EXPOSED, INFECTIOUS, RECOVERED)] == pytest.approx(0.6 * 0.8)
     assert courses[(EXPOSED, INFECTIOUS, HOSPITAL, RECOVERED)] == pytest.approx(0.6 * 0.2 * 0.9)
-    assert courses[(EXPOSED, INFECTIOUS, HOSPITAL)] == pytest.approx(0.6 * 0.2 * 0.1)
+    assert courses[(EXPOSED, INFECTIOUS, HOSPITAL, DYING)] == pytest.approx(0.6 * 0.2 * 0.1)
 
 
 def test_infectious_days_weigh_each_state_by_its_infectiousness_and_the_chance_of_reaching_it():
     model = ForkModel(
         ONE_DAY,
-        asymptomatic_share=0.4,
-        asymptomatic_days=4.0,
-        asymptomatic_infectiousness=0.5,
+        mild_share=0.4,
+        mild_days=4.0,
+        mild_infectiousness=0.5,
         infectious_days=6.0,
         hospital_share=0.2,
     )
@@ -371,18 +453,18 @@ def test_household_risk_of_a_forked_course_mixes_its_ways():
     model = ForkModel(
         ONE_DAY,
         transmission=0.3,
-        asymptomatic_share=0.4,
-        asymptomatic_days=4.0,
-        asymptomatic_infectiousness=0.5,
+        mild_share=0.4,
+        mild_days=4.0,
+        mild_infectiousness=0.5,
         infectious_days=6.0,
         hospital_share=0.0,
         duration_shape=4.0,
     )
     hazard = -math.log(0.7)
-    survive_asymptomatic = (1 + hazard * 0.5 * 4.0 / 4.0) ** -4.0
+    survive_mild = (1 + hazard * 0.5 * 4.0 / 4.0) ** -4.0
     survive_symptomatic = (1 + hazard * 6.0 / 4.0) ** -4.0
     assert model.pair_transmission_probability() == pytest.approx(
-        1 - (0.4 * survive_asymptomatic + 0.6 * survive_symptomatic)
+        1 - (0.4 * survive_mild + 0.6 * survive_symptomatic)
     )
 
 
@@ -408,7 +490,7 @@ def declaration(**changes):
             {
                 "PHASES": {
                     **ForkModel.PHASES,
-                    EXPOSED: Phase(INFECTIOUS, "incubation_days", False, ASYMPTOMATIC),
+                    EXPOSED: Phase(INFECTIOUS, "incubation_days", False, MILD),
                 }
             },
             "branch",
@@ -428,7 +510,7 @@ def declaration(**changes):
             {
                 "PHASES": {
                     **ForkModel.PHASES,
-                    EXPOSED: Phase(INFECTIOUS, "incubation_days", False, ASYMPTOMATIC, "nope"),
+                    EXPOSED: Phase(INFECTIOUS, "incubation_days", False, MILD, "nope"),
                 }
             },
             "unknown parameter",
@@ -463,8 +545,8 @@ def declaration(**changes):
         ({"PROTECTION": {RECOVERED: "nope"}}, "unknown parameter"),
         ({"PROTECTION": {SUSCEPTIBLE: "immunity_protection"}}, "susceptible"),
         ({"PROTECTION": {"nowhere": "immunity_protection"}}, "unknown state"),
-        ({"STATE_INFECTIOUSNESS": {EXPOSED: "asymptomatic_infectiousness"}}, "not infectious"),
-        ({"STATE_INFECTIOUSNESS": {ASYMPTOMATIC: "nope"}}, "unknown parameter"),
+        ({"STATE_INFECTIOUSNESS": {EXPOSED: "mild_infectiousness"}}, "not infectious"),
+        ({"STATE_INFECTIOUSNESS": {MILD: "nope"}}, "unknown parameter"),
         ({"SYMPTOMATIC_STATES": frozenset({"nowhere"})}, "unknown state"),
         ({"CONFINED_STATES": frozenset({"nowhere"})}, "unknown state"),
         ({"STARTING_SHARES": {"nowhere": "hospital_share"}}, "unknown state"),
@@ -474,14 +556,13 @@ def declaration(**changes):
             "susceptible",
         ),
         (
-            {"PHASES": {**ForkModel.PHASES, ASYMPTOMATIC: Phase(EXPOSED, "asymptomatic_days")}},
+            {"PHASES": {**ForkModel.PHASES, MILD: Phase(EXPOSED, "mild_days")}},
             "cycle",
         ),
         (
             {
                 "PHASES": {
-                    key: ForkModel.PHASES[key]
-                    for key in (EXPOSED, ASYMPTOMATIC, HOSPITAL, RECOVERED)
+                    key: ForkModel.PHASES[key] for key in (EXPOSED, MILD, HOSPITAL, RECOVERED)
                 }
             },
             "unreachable",
@@ -495,11 +576,11 @@ def test_impossible_declarations_are_refused(changes, message):
 
 def test_a_person_keeps_the_decision_to_stay_home_between_consecutive_symptomatic_states():
     class TwoStages(ForkModel):
-        SYMPTOMATIC_STATES = frozenset({ASYMPTOMATIC, INFECTIOUS})
+        SYMPTOMATIC_STATES = frozenset({MILD, INFECTIOUS})
 
     model = TwoStages(ONE_DAY, stay_home=0.5, limit_outings=0.3)
     disease_state, rng = new_state(model, population=40_000)
-    place(model, disease_state, rng, np.arange(40_000), ASYMPTOMATIC)
+    place(model, disease_state, rng, np.arange(40_000), MILD)
     home, outings = disease_state.stays_home.copy(), disease_state.limits_outings.copy()
     assert home.mean() == pytest.approx(0.5, abs=0.01)
     place(model, disease_state, rng, np.arange(40_000), INFECTIOUS)
@@ -533,7 +614,7 @@ def test_starting_shares_that_add_up_to_more_than_everybody_are_refused():
 
 
 def test_the_course_states_are_those_between_infection_and_the_end_of_the_illness():
-    assert ForkModel.course_states() == {EXPOSED, ASYMPTOMATIC, INFECTIOUS, HOSPITAL, RECOVERED}
+    assert ForkModel.course_states() == {EXPOSED, MILD, INFECTIOUS, HOSPITAL, RECOVERED}
     assert VaccinationModel.course_states() == {INFECTIOUS, RECOVERED}, "not the vaccinated"
     assert ChronicModel.course_states() == {INFECTIOUS}
 
@@ -551,3 +632,72 @@ def test_protection_of_a_state_is_the_value_of_its_parameter_or_zero():
         0.7,
         0.4,
     ]
+
+
+# --- per infection: infectiousness, reinfection, time to death ------------------------------------
+
+
+def test_infectiousness_is_drawn_anew_for_every_infection_with_mean_one_and_the_set_spread():
+    model = RepeatModel(ONE_DAY, infectious_days=1.0, infectiousness_dispersion=0.5, fatality=0.0)
+    disease_state, rng = new_state(model, population=200_000)
+    people = np.arange(200_000)
+    model.apply_infections(disease_state, people, rng)
+    first = disease_state.infectiousness.copy()
+    for _ in range(5):  # everybody recovers and is susceptible again
+        advance(model, disease_state, rng)
+    model.apply_infections(disease_state, people, rng)
+    second = disease_state.infectiousness
+    assert first.mean() == pytest.approx(1.0, abs=0.01)
+    assert first.var() == pytest.approx(1 / 0.5, rel=0.05)
+    assert abs(np.corrcoef(first, second)[0, 1]) < 0.01, "a superspreader once is not one always"
+
+
+def test_a_reinfection_kills_less_by_the_protection_against_death():
+    model = RepeatModel(ONE_DAY, infectious_days=1.0, fatality=0.5, severe_protection=0.8)
+    disease_state, rng = new_state(model, population=100_000)
+    people = np.arange(100_000)
+    disease_state.immune_before[50_000:] = True  # infected once before
+    model.apply_infections(disease_state, people, rng)
+    for _ in range(3):
+        advance(model, disease_state, rng)
+    dead = disease_state.state == model.dead_index
+    assert dead[:50_000].mean() == pytest.approx(0.5, abs=0.01)
+    assert dead[50_000:].mean() == pytest.approx(0.5 * 0.2, abs=0.01)
+
+
+def test_the_dying_spread_nothing_meet_nobody_and_die_after_the_time_to_death():
+    model = RepeatModel(
+        1 / 24, infectious_days=1.0, fatality=1.0, death_delay_days=10.0, duration_shape=50.0
+    )
+    disease_state, rng = new_state(model, population=2000)
+    model.apply_infections(disease_state, np.arange(2000), rng)
+    days, half_dead = 0.0, None
+    while not (disease_state.state == model.dead_index).all() and days < 30:
+        advance(model, disease_state, rng)
+        days += 1 / 24
+        dying = disease_state.state == list(model.STATE_COLORS).index(DYING)
+        assert (model.infectious_weight(disease_state)[dying] == 0).all()
+        assert (model.away_mask(disease_state) == dying).all()
+        if half_dead is None and disease_state.deaths >= 1000:
+            half_dead = days
+    assert half_dead == pytest.approx(11.0, abs=0.3), "one day ill, then ten days before death"
+    assert disease_state.deaths == 2000
+
+
+def test_household_risk_counts_the_spread_of_infectiousness_between_infections():
+    model = RepeatModel(
+        ONE_DAY,
+        transmission=0.3,
+        infectious_days=5.0,
+        duration_shape=4.0,
+        fatality=0.0,
+        infectiousness_dispersion=0.3,
+    )
+    rng = np.random.default_rng(5)
+    hazard = -math.log(0.7)
+    stays = rng.gamma(4.0, 5.0 / 4.0, 400_000) * rng.gamma(0.3, 1 / 0.3, 400_000)
+    assert model.pair_transmission_probability() == pytest.approx(
+        np.mean(1 - np.exp(-hazard * stays)), abs=0.003
+    )
+    without = RepeatModel(ONE_DAY, transmission=0.3, infectious_days=5.0, duration_shape=4.0)
+    assert model.pair_transmission_probability() < without.pair_transmission_probability()

@@ -42,11 +42,12 @@ def town_of(population=6000, arena=ARENA, params=PARAMS, seed=1):
     return build_town(population, arena, params, np.random.default_rng(seed))
 
 
-def mean_contacts_at(x, y, mask, arena, radius=2.0):
-    """Average number of other people in `mask` within `radius` of a person in `mask`."""
+def mean_contacts_at(x, y, mask, arena, venue, radius=2.0):
+    """Average number of other people in `mask` within `radius` of a person in `mask`, in the
+    same venue."""
     cells = max(1, min(int(arena // radius), 2 * math.isqrt(len(x))))
     contacts = count_infectious_contacts(
-        x, y, mask, mask.astype(np.float32), *build_grid(x, y, arena, cells), cells, radius
+        x, y, mask, mask.astype(np.float32), venue, *build_grid(x, y, arena, cells), cells, radius
     )
     return contacts[mask].mean() - 1.0  # a person is within contact distance of themselves
 
@@ -129,11 +130,13 @@ def test_homes_are_denser_in_the_core():
 
 def test_floor_space_per_person_is_a_property_of_the_place_and_sets_how_crowded_it_is():
     town = town_of(population=12_000)
-    radius = 6.0
+    radius = 1.5  # within a class, which is a venue of its own (a class of 20 has a radius of 4 m)
     expected = {}
     for kind, role in (("work", WORKER), ("school", SCHOOL)):
         members = town.role == role
-        measured = mean_contacts_at(town.work_x, town.work_y, members, ARENA, radius)
+        measured = mean_contacts_at(
+            town.work_x, town.work_y, members, ARENA, town.work_venue, radius
+        )
         expected[kind] = measured
         area = PARAMS.places[kind].area_mean
         assert measured == pytest.approx(math.pi * radius**2 / area, rel=0.5)
@@ -387,9 +390,12 @@ def test_care_homes_are_places_of_old_people_with_their_staff():
     homes, sizes = np.unique(town.household[residents], return_counts=True)
     assert sizes.mean() == pytest.approx(66, rel=0.25)
     staff = (town.place_kind == RESIDENT) & (town.role == WORKER)
-    assert staff.sum() == pytest.approx(
-        PARAMS.care_home.staff_per_resident * residents.sum(), rel=0.1
+    # enough staff for `staff_per_resident` of them to be on the day shift on any day
+    care = PARAMS.care_home
+    assert staff.sum() * care.attendance == pytest.approx(
+        care.staff_per_resident * residents.sum(), rel=0.1
     )
+    assert (town.shift_window[staff] == care.shift_hours).all()
     assert (town.sex[staff] == FEMALE).mean() > 0.75
     first = town.household == homes[0]
     room = np.hypot(
@@ -397,6 +403,18 @@ def test_care_homes_are_places_of_old_people_with_their_staff():
         town.home_y[first] - town.home_y[first].mean(),
     )
     assert room.max() > 2 * PARAMS.population.household_radius
+
+
+def test_the_places_of_the_lunch_break_have_their_staff_over_the_lunch_breaks():
+    town = town_of(population=6000)
+    food = next(a for a in PARAMS.schedule.activities if a.name == "food")
+    staff = town.activity_staff & ~np.isnan(town.shift_window[:, 0, 0])
+    lunch_places = np.unique(town.lunch_venue[town.lunch_venue >= 0])
+    serves_lunch = np.isin(town.work_venue[staff], lunch_places)
+    weekday = town.shift_window[staff, 0][serves_lunch]
+    assert len(weekday) > 0
+    assert (weekday[:, 0] <= np.nanmin(PARAMS.schedule.lunch_window[:, 0, 0])).all()
+    assert (weekday[:, 1] >= food.window[0][1]).all(), "and still in the evening"
 
 
 def test_residents_stay_in_the_care_home():
@@ -457,10 +475,12 @@ def test_estimated_mean_contacts_grow_with_the_contact_distance_and_are_cached()
     assert mean_contacts(WORLD, PARAMS, 2.0) == small
 
 
-def test_estimated_mean_contacts_fall_in_a_larger_town_of_the_same_people():
+def test_mean_contacts_do_not_depend_on_the_area_of_the_town():
+    # People meet inside homes and places, whose floor space per person is a property of the
+    # place; a larger town only puts them further apart (contacts through walls do not count).
     crowded = mean_contacts({"population": 3000, "arena_size": 1200}, PARAMS, 4.0)
     sparse = mean_contacts({"population": 3000, "arena_size": 4000}, PARAMS, 4.0)
-    assert sparse < crowded
+    assert sparse == pytest.approx(crowded, rel=0.03)
 
 
 def test_town_is_reproducible_from_the_seed():

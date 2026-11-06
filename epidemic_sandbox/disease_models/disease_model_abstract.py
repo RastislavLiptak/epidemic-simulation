@@ -11,10 +11,22 @@ SUSCEPTIBLE = "susceptible"
 EXPOSED = "exposed"
 INFECTIOUS = "infectious"
 RECOVERED = "recovered"
+ASYMPTOMATIC = "asymptomatic"
+DYING = "dying"
 DEAD = "dead"
 LIFELONG_DAYS = 36500
+DAYS_PER_YEAR = 365.25
 NEVER_DAYS = 1e9  # the timer of a stay that is never left
-AGE_EFFECTS = ("susceptibility", "fatality", "branching")
+INFECTIOUSNESS_SAMPLE = 200_000  # draws of the infectiousness of an infection, for expectations
+AGE_EFFECTS = (
+    "susceptibility",
+    "fatality",
+    "branching",
+    "starting_share",
+    "outside_infections",
+    "asymptomatic",
+)
+BRANCH_AGE_EFFECTS = ("branching", "asymptomatic")
 
 TRANSMISSION = ParameterSpec(
     "Transmission (per day of contact)",
@@ -24,6 +36,17 @@ TRANSMISSION = ParameterSpec(
     0.0,
     1.0,
     0.01,
+)
+COMMUNITY_FACTOR = ParameterSpec(
+    "Spread outside the household (relative)",
+    "How much more (or less) easily the disease passes between people who do not share a "
+    "household than between members of one household, for the same time within contact "
+    "distance. 1 treats both alike; higher values stand for what the town does not model: "
+    "crowds, shared air, brief contacts.",
+    1.0,
+    0.0,
+    100.0,
+    0.1,
 )
 CONTACT_DISTANCE = ParameterSpec(
     "Contact distance (m)",
@@ -63,7 +86,9 @@ LIMIT_OUTINGS = ParameterSpec(
 FATALITY = ParameterSpec(
     "Fatality (per infection)",
     "Chance that an infection ends in death for a person whose age effect is 1; the age effects "
-    "scale it up and down.",
+    "scale it up and down. Only infections with symptoms end in death: where a share of the "
+    "infections has no symptoms, those with symptoms carry the deaths of all, so the chance per "
+    "infection stays this one (capped at certain death).",
     0.0,
     0.0,
     1.0,
@@ -79,8 +104,11 @@ SUSCEPTIBILITY_CV = ParameterSpec(
 )
 INFECTIOUSNESS_DISPERSION = ParameterSpec(
     "Infectiousness dispersion (gamma shape)",
-    "How much infectious people differ in how much they spread it. Small values mean a few "
-    "superspreaders cause most infections; 0 means everybody spreads equally.",
+    "How much infections differ in how much they spread (a new draw for every infection). Small "
+    "values mean a few superspreaders cause most infections; 0 means every infection spreads "
+    "alike. It adds to the variation the town itself makes (households of different sizes, people "
+    "who meet more), so it is set to give the published dispersion of the number of people one "
+    "case infects, not taken from it.",
     0.0,
     0.0,
     100.0,
@@ -105,15 +133,88 @@ IMMUNITY_PROTECTION = ParameterSpec(
     0.05,
 )
 
+DEATH_DELAY = ParameterSpec(
+    "Time to death (days)",
+    "Average number of days that people who die of the disease live after their infectious "
+    "course has ended. They are gravely ill (in hospital), meet nobody in the town and spread "
+    "nothing; 0 means they die when the infectious course ends.",
+    0.0,
+    0.0,
+    120.0,
+    0.1,
+)
+SEVERE_PROTECTION = ParameterSpec(
+    "Protection against death on reinfection",
+    "How much an earlier infection lowers the chance of dying of a new one: 0 means a "
+    "reinfection is as dangerous as a first infection, 1 that nobody dies of a reinfection. "
+    "People who start the experiment immune (recovered) count as infected before.",
+    0.0,
+    0.0,
+    1.0,
+    0.01,
+)
+DEATH_PARAMETERS = {"death_delay_days": DEATH_DELAY, "severe_protection": SEVERE_PROTECTION}
+
+OUTSIDE_INFECTIONS = ParameterSpec(
+    "Infections from outside (per person and year)",
+    "How often a susceptible person catches the disease outside the town, or from people the "
+    "model does not have (healthy carriers, visitors), per year, for a person whose age effect "
+    "is 1 (see age effects). 0 is a closed town, in which a disease dies out when its last case "
+    "recovers.",
+    0.0,
+    0.0,
+    50.0,
+    0.001,
+)
+
+ASYMPTOMATIC_SHARE = ParameterSpec(
+    "Infections without symptoms (share)",
+    "Share of the infections that never cause symptoms, for a person whose asymptomatic age effect "
+    "is 1 (see age effects). Such a person spreads the disease without knowing it, goes about the "
+    "day as usual and does not die of it. 0 means every infection has symptoms.",
+    0.0,
+    0.0,
+    1.0,
+    0.01,
+)
+ASYMPTOMATIC_DAYS = ParameterSpec(
+    "Infectious period without symptoms (days)",
+    "Average number of days an infection without symptoms spreads the disease (used only when "
+    "the share without symptoms is above 0).",
+    5.0,
+    0.1,
+    60.0,
+    0.1,
+)
+ASYMPTOMATIC_INFECTIOUSNESS = ParameterSpec(
+    "Infectiousness without symptoms (relative, whole infection)",
+    "How much an infection without symptoms spreads in all, compared with one with symptoms, for "
+    "the same contacts: the ratio of the secondary attack rates of the contacts of people "
+    "without and with symptoms that contact studies report. 1 is the same, 0 not at all. It is "
+    "spread evenly over the days without symptoms; the behaviour of the ill (staying at home) "
+    "comes on top of it.",
+    1.0,
+    0.0,
+    2.0,
+    0.01,
+)
+ASYMPTOMATIC_PARAMETERS = {
+    "asymptomatic_share": ASYMPTOMATIC_SHARE,
+    "asymptomatic_days": ASYMPTOMATIC_DAYS,
+    "asymptomatic_infectiousness": ASYMPTOMATIC_INFECTIOUSNESS,
+}
+
 COMMON_PARAMETERS = {
     "transmission": TRANSMISSION,
     "contact_distance": CONTACT_DISTANCE,
+    "community_factor": COMMUNITY_FACTOR,
     "duration_shape": DURATION_SHAPE,
     "stay_home": STAY_HOME,
     "limit_outings": LIMIT_OUTINGS,
     "fatality": FATALITY,
     "susceptibility_cv": SUSCEPTIBILITY_CV,
     "infectiousness_dispersion": INFECTIOUSNESS_DISPERSION,
+    "outside_infections": OUTSIDE_INFECTIONS,
 }
 IMMUNITY_PARAMETERS = {"immunity_days": IMMUNITY_DAYS, "immunity_protection": IMMUNITY_PROTECTION}
 
@@ -122,9 +223,11 @@ IMMUNITY_PARAMETERS = {"immunity_days": IMMUNITY_DAYS, "immunity_protection": IM
 class Phase:
     """After a gamma-distributed time (mean in `duration_parameter`), go to `next_state`.
 
-    A `fatal` phase ends in death for people who die of the disease instead. Of the survivors a
-    share goes to `branch_state` instead of `next_state`: the value of `branch_parameter`, scaled
-    by the person's "branching" age effect and capped at 1.
+    A `fatal` phase ends, for people who die of the disease, in the DYING state instead, which
+    they leave dead after `death_delay_days`. Of the survivors a share goes to `branch_state`
+    instead of `next_state`: the value of `branch_parameter`, scaled by the person's age effect
+    `branch_age_effect` ("branching", or "asymptomatic" for the course without symptoms) and
+    capped at 1.
     """
 
     next_state: str
@@ -132,6 +235,17 @@ class Phase:
     fatal: bool = False
     branch_state: str | None = None
     branch_parameter: str | None = None
+    branch_age_effect: str = "branching"
+
+
+@dataclass(frozen=True)
+class Branch:
+    """A share of the newly infected enters `state` instead of the entry state: the value of
+    `parameter`, scaled by the person's age effect `age_effect` and capped at 1."""
+
+    state: str
+    parameter: str
+    age_effect: str = "branching"
 
 
 @dataclass(frozen=True)
@@ -160,6 +274,10 @@ class DiseaseState:
     fatality_risk: np.ndarray
     branching: np.ndarray
     cumulative_infections: int = 0
+    reinfected: np.ndarray | None = None  # the person's current infection is not their first
+    immune_before: np.ndarray | None = None  # infected before or started immune (recovered)
+    outside: np.ndarray | None = None  # how often the person is infected from outside, by age
+    asymptomatic: np.ndarray | None = None  # the "asymptomatic" age effect of the person
     deaths: int = 0
     steps: int = 0
 
@@ -186,6 +304,8 @@ class DiseaseModelAbstract:
     - PARAMETERS (the common ones, plus those the model's own data refer to) and STATE_COLORS:
       the first state is the initial one, DEAD the absorbing one. The charts follow the states
       named "infectious" (all infectious states together) and "recovered" where they exist.
+      A model with a fatal phase also has the DYING state and DEATH_PARAMETERS: those who die
+      of the disease are gravely ill for a while, away from everybody, before they die.
     - INFECTIOUS_STATES, INFECTION_ENTRY_STATE (where an infected person goes) and
       INITIAL_CASE_STATE (where the first cases start).
     - PHASES: timed transitions out of a state, to a next state and optionally, for a share of
@@ -202,7 +322,19 @@ class DiseaseModelAbstract:
       catching the disease (1 is complete; below 1 they can be infected at a reduced hazard).
     - RATES: spontaneous moves out of a state at a constant hazard per day (see `Rate`), such
       as vaccination; a state has either a phase or a rate.
-    - STARTING_SHARES: state -> parameter, the share of the people who start in that state.
+    - STARTING_SHARES: state -> parameter, the share of the people who start in that state. The
+      "starting_share" age effect scales every such share by age (capped at 1), so a disease can
+      state, for instance, the immune share found by an age-resolved serological survey.
+    - INFECTION_BRANCH: a share of the newly infected enters another state than
+      INFECTION_ENTRY_STATE (see `Branch`), for a course that splits when it starts.
+
+    Infections without symptoms are common to all models that have the ASYMPTOMATIC state: it
+    is reached by a branch (of a phase, or INFECTION_BRANCH) with the share "asymptomatic_share"
+    and the age effect "asymptomatic", left by a phase of "asymptomatic_days" that does not kill,
+    and the model has ASYMPTOMATIC_PARAMETERS. The state is infectious and never symptomatic (a
+    person in it behaves as usual); how much it spreads per day follows from
+    "asymptomatic_infectiousness", what an infection without symptoms spreads in all relative to
+    one with symptoms. The first cases always have symptoms (they are the cases noticed).
     """
 
     PARAMETERS: ClassVar[dict[str, ParameterSpec]]
@@ -211,6 +343,7 @@ class DiseaseModelAbstract:
     INFECTION_ENTRY_STATE: ClassVar[str]
     INITIAL_CASE_STATE: ClassVar[str]
     PHASES: ClassVar[dict[str, Phase]]
+    INFECTION_BRANCH: ClassVar[Branch | None] = None
     STATE_INFECTIOUSNESS: ClassVar[dict[str, str]] = {}
     SYMPTOMATIC_STATES: ClassVar[frozenset[str] | None] = None
     CONFINED_STATES: ClassVar[frozenset[str]] = frozenset()
@@ -226,6 +359,8 @@ class DiseaseModelAbstract:
         parameters = cls.PARAMETERS.keys()
         fatal = any(phase.fatal for phase in cls.PHASES.values())
         required = COMMON_PARAMETERS.keys() if fatal else COMMON_PARAMETERS.keys() - {"fatality"}
+        if fatal:
+            required = required | DEATH_PARAMETERS.keys()
         if not required <= parameters:
             raise TypeError(f"{name}: PARAMETERS need {sorted(required)}")
         if DEAD not in states or not states >= cls.INFECTIOUS_STATES:
@@ -247,17 +382,22 @@ class DiseaseModelAbstract:
             known_state(state, what)
             known_state(phase.next_state, what)
             known_parameter(phase.duration_parameter, what)
-            if state in (initial, DEAD):
+            if state in (initial, DEAD, DYING):
                 raise TypeError(f"{name}: the {state} state cannot have a phase")
             if (phase.branch_state is None) != (phase.branch_parameter is None):
                 raise TypeError(f"{name}: {what} needs both branch_state and branch_parameter")
+            if phase.branch_age_effect not in BRANCH_AGE_EFFECTS:
+                effect = phase.branch_age_effect
+                raise TypeError(f"{name}: {what} has no branch age effect {effect}")
             edges[state].add(phase.next_state)
             if phase.branch_state is not None:
                 known_state(phase.branch_state, what)
                 known_parameter(phase.branch_parameter, what)
                 edges[state].add(phase.branch_state)
-            if DEAD in (phase.next_state, phase.branch_state):
+            if {DEAD, DYING} & {phase.next_state, phase.branch_state}:
                 raise TypeError(f"{name}: {what} leads to dead; only a fatal phase kills")
+            if phase.fatal:
+                edges[state].add(DYING)
         for state, rate in cls.RATES.items():
             what = f"rate of {state}"
             known_state(state, what)
@@ -267,7 +407,7 @@ class DiseaseModelAbstract:
                 known_parameter(rate.start_parameter, what)
             if state != initial:
                 raise TypeError(f"{name}: a rate leaves only the {initial} state, not {state}")
-            if rate.next_state == DEAD:
+            if rate.next_state in (DEAD, DYING):
                 raise TypeError(f"{name}: {what} leads to dead; only a fatal phase kills")
             edges[state].add(rate.next_state)
         for state, parameter in cls.PROTECTION.items():
@@ -291,10 +431,37 @@ class DiseaseModelAbstract:
         for state, parameter in cls.STARTING_SHARES.items():
             known_state(state, f"starting share of {state}")
             known_parameter(parameter, f"starting share of {state}")
-            if state in (initial, DEAD):
+            if state in (initial, DEAD, DYING):
                 raise TypeError(f"{name}: nobody starts in the {state} state by a share")
 
+        if fatal != (DYING in states):
+            raise TypeError(f"{name}: a model with a fatal phase, and only such, has a dying state")
+        special = {DYING} & (
+            set(cls.INFECTIOUS_STATES)
+            | set(cls.PHASES)
+            | set(cls.PROTECTION)
+            | set(cls.RATES)
+            | set(cls.STARTING_SHARES)
+            | set(cls.CONFINED_STATES)
+            | set(cls.SYMPTOMATIC_STATES or ())
+        )
+        if special:
+            raise TypeError(f"{name}: the dying state is handled by the base class only")
+        entry = cls.INFECTION_BRANCH
+        if entry is not None:
+            known_state(entry.state, "the infection branch")
+            known_parameter(entry.parameter, "the infection branch")
+            if entry.state in (initial, DEAD, DYING, cls.INFECTION_ENTRY_STATE):
+                raise TypeError(f"{name}: the infection branch cannot lead to {entry.state}")
+            if entry.age_effect not in BRANCH_AGE_EFFECTS:
+                effect = entry.age_effect
+                raise TypeError(f"{name}: the infection branch has no age effect {effect}")
+        if ASYMPTOMATIC in states:
+            cls._require_asymptomatic_course(name, symptomatic)
+
         reachable = {cls.INFECTION_ENTRY_STATE, cls.INITIAL_CASE_STATE, initial}
+        if entry is not None:
+            reachable.add(entry.state)
         reachable |= {rate.next_state for rate in cls.RATES.values()}
         reachable |= set(cls.STARTING_SHARES)
         pending = list(reachable)
@@ -310,11 +477,57 @@ class DiseaseModelAbstract:
         used |= set(cls.STARTING_SHARES.values())
         used |= {phase.duration_parameter for phase in cls.PHASES.values()}
         used |= {phase.branch_parameter for phase in cls.PHASES.values()} - {None}
+        if entry is not None:
+            used.add(entry.parameter)
+        if ASYMPTOMATIC in states:
+            used |= ASYMPTOMATIC_PARAMETERS.keys()
         for rate in cls.RATES.values():
             used |= {rate.rate_parameter, rate.start_parameter} - {None}
-        unused = parameters - COMMON_PARAMETERS.keys() - used
+        unused = parameters - COMMON_PARAMETERS.keys() - DEATH_PARAMETERS.keys() - used
         if unused:
             raise TypeError(f"{name}: parameters {sorted(unused)} are not used by the declaration")
+
+    @classmethod
+    def _require_asymptomatic_course(cls, name: str, symptomatic: frozenset[str]) -> None:
+        """The ASYMPTOMATIC state is the common course without symptoms (see the class)."""
+        if not ASYMPTOMATIC_PARAMETERS.keys() <= cls.PARAMETERS.keys():
+            raise TypeError(f"{name}: the asymptomatic state needs ASYMPTOMATIC_PARAMETERS")
+        if ASYMPTOMATIC not in cls.INFECTIOUS_STATES:
+            raise TypeError(f"{name}: the asymptomatic state must be infectious")
+        if ASYMPTOMATIC in symptomatic or ASYMPTOMATIC in cls.CONFINED_STATES:
+            raise TypeError(f"{name}: the asymptomatic state cannot be symptomatic or confined")
+        if ASYMPTOMATIC in cls.STATE_INFECTIOUSNESS:
+            raise TypeError(
+                f"{name}: the infectiousness of the asymptomatic state follows from "
+                "asymptomatic_infectiousness"
+            )
+        if ASYMPTOMATIC in (cls.INFECTION_ENTRY_STATE, cls.INITIAL_CASE_STATE):
+            raise TypeError(f"{name}: the asymptomatic state is reached by a branch only")
+        phase = cls.PHASES.get(ASYMPTOMATIC)
+        if (
+            phase is None
+            or phase.fatal
+            or phase.duration_parameter != "asymptomatic_days"
+            or phase.branch_state is not None
+        ):
+            raise TypeError(
+                f"{name}: the asymptomatic state needs a phase of asymptomatic_days that does "
+                "not kill and has no branch"
+            )
+        ways = [
+            (other.branch_parameter, other.branch_age_effect)
+            for other in cls.PHASES.values()
+            if other.branch_state == ASYMPTOMATIC
+        ]
+        if cls.INFECTION_BRANCH is not None and cls.INFECTION_BRANCH.state == ASYMPTOMATIC:
+            ways.append((cls.INFECTION_BRANCH.parameter, cls.INFECTION_BRANCH.age_effect))
+        if any(other.next_state == ASYMPTOMATIC for other in cls.PHASES.values()) or ways != [
+            ("asymptomatic_share", "asymptomatic")
+        ]:
+            raise TypeError(
+                f"{name}: the asymptomatic state is reached by one branch only, with the share "
+                "asymptomatic_share and the age effect asymptomatic"
+            )
 
     def __init__(self, step_days: float, age_effects: Mapping | None = None, **parameters: float):
         self.step_days = step_days
@@ -331,11 +544,15 @@ class DiseaseModelAbstract:
         self._state_weight = np.array(
             [self._relative_infectiousness(state) for state in self.STATE_COLORS], np.float32
         )
+        if ASYMPTOMATIC in self._index:
+            self._state_weight[self._index[ASYMPTOMATIC]] = self._asymptomatic_weight()
         self._moving = [
             self._index[state]
             for state in self.STATE_COLORS
             if self._is_left_over_time(state) or self._is_open_ended_infection(state)
         ]
+        if DYING in self._index:
+            self._moving.append(self._index[DYING])
 
     @classmethod
     def initial_state(cls) -> str:
@@ -345,9 +562,11 @@ class DiseaseModelAbstract:
     def course_states(cls) -> frozenset[str]:
         """The states an infection runs through, from the one an infected person enters on."""
         found, pending = set(), [cls.INFECTION_ENTRY_STATE]
+        if cls.INFECTION_BRANCH is not None:
+            pending.append(cls.INFECTION_BRANCH.state)
         while pending:
             state = pending.pop()
-            if state in found or state in (cls.initial_state(), DEAD):
+            if state in found or state in (cls.initial_state(), DEAD, DYING):
                 continue
             found.add(state)
             phase = cls.PHASES.get(state)
@@ -372,6 +591,21 @@ class DiseaseModelAbstract:
     def dead_index(self) -> int:
         return self._index[DEAD]
 
+    def state_index(self, state: str) -> int:
+        """The number of `state` in the per-person state array."""
+        return self._index[state]
+
+    def confined_mask(self, disease_state: DiseaseState) -> np.ndarray:
+        """Who is in a confined state of the disease (isolated at home)."""
+        indices = [self._index[state] for state in self.CONFINED_STATES]
+        return np.isin(disease_state.state, indices)
+
+    def away_mask(self, disease_state: DiseaseState) -> np.ndarray:
+        """Who is gravely ill with the disease (in hospital) and meets nobody in the town."""
+        if DYING not in self._index:
+            return np.zeros(len(disease_state.state), np.bool_)
+        return disease_state.state == self._index[DYING]
+
     def create_state(
         self, population: int, initial_cases: np.ndarray, rng, age: np.ndarray
     ) -> DiseaseState:
@@ -387,7 +621,17 @@ class DiseaseModelAbstract:
             if dispersion > 0
             else np.ones(population)
         )
-        fatality = self.parameters.get("fatality", 0.0)
+        asymptomatic = self._age_multiplier("asymptomatic", age)
+        # the deaths fall on the infections with symptoms: their risk is the risk per infection
+        # divided by the chance of having symptoms, so that the risk per infection is kept
+        with_symptoms = self._symptomatic_chance(asymptomatic)
+        per_infection = self.parameters.get("fatality", 0.0) * self._age_multiplier("fatality", age)
+        fatality_risk = np.divide(
+            per_infection,
+            with_symptoms,
+            out=np.zeros(population),
+            where=with_symptoms > 0,
+        )
         disease_state = DiseaseState(
             state=np.zeros(population, np.int8),
             timer=np.zeros(population, np.float32),
@@ -396,22 +640,28 @@ class DiseaseModelAbstract:
             limits_outings=np.zeros(population, np.bool_),
             susceptibility=susceptibility.astype(np.float32),
             infectiousness=infectiousness.astype(np.float32),
-            fatality_risk=np.clip(
-                fatality * self._age_multiplier("fatality", age), 0.0, 1.0
-            ).astype(np.float32),
+            fatality_risk=np.clip(fatality_risk, 0.0, 1.0).astype(np.float32),
             branching=self._age_multiplier("branching", age).astype(np.float32),
+            reinfected=np.zeros(population, np.bool_),
+            immune_before=np.zeros(population, np.bool_),
+            outside=self._age_multiplier("outside_infections", age).astype(np.float32),
+            asymptomatic=asymptomatic.astype(np.float32),
         )
         if self.STARTING_SHARES:
+            starting = self._age_multiplier("starting_share", age)
             draw = rng.random(population)
             draw[initial_cases] = np.inf  # the first cases are in their own state
-            upper = 0.0
+            upper = np.zeros(population)
             for state, parameter in self.STARTING_SHARES.items():
-                lower, upper = upper, upper + self.parameters[parameter]
+                lower, upper = upper, upper + np.minimum(self.parameters[parameter] * starting, 1.0)
                 self._enter(
                     disease_state, np.flatnonzero((draw >= lower) & (draw < upper)), state, rng
                 )
+        if RECOVERED in self._index:
+            disease_state.immune_before[disease_state.state == self._index[RECOVERED]] = True
         self._enter(disease_state, initial_cases, self.INITIAL_CASE_STATE, rng)
         disease_state.ever_infected[initial_cases] = True
+        disease_state.immune_before[initial_cases] = True
         disease_state.cumulative_infections = len(initial_cases)
         return disease_state
 
@@ -442,18 +692,34 @@ class DiseaseModelAbstract:
         self.finish_phases(disease_state, rng)
         self.apply_infections(disease_state, infected, rng)
 
-    def draw_infections(self, disease_state: DiseaseState, exposure: np.ndarray, rng) -> np.ndarray:
-        """Who catches the disease this step, from the states at its start."""
+    def draw_infections(
+        self, disease_state: DiseaseState, exposure: np.ndarray, rng, relative=1.0
+    ) -> np.ndarray:
+        """Who catches the disease this step, from the states at its start. `relative` is how
+        much more easily each person catches it than a person without interactions (`exposure`
+        already holds it; the infections from outside are weighted by it here)."""
+        weight = np.broadcast_to(
+            np.asarray(relative, np.float64)
+            * disease_state.susceptibility
+            * self.outside_weight(disease_state),
+            exposure.shape,
+        )
         exposure = exposure * disease_state.susceptibility
-        infected = self._new_infections(disease_state, exposure, 0, 1.0, rng)
+        infected = self._new_infections(disease_state, exposure, weight, 0, 1.0, rng)
         for state, parameter in self.PROTECTION.items():
             protection = self.parameters[parameter]
             if protection < 1.0:
                 reinfected = self._new_infections(
-                    disease_state, exposure, self._index[state], 1.0 - protection, rng
+                    disease_state, exposure, weight, self._index[state], 1.0 - protection, rng
                 )
                 infected = np.concatenate([infected, reinfected])
         return infected
+
+    @staticmethod
+    def outside_weight(disease_state: DiseaseState) -> np.ndarray | float:
+        """How often each person is infected from outside relative to the parameter (the
+        "outside_infections" age effect)."""
+        return 1.0 if disease_state.outside is None else disease_state.outside
 
     def finish_phases(self, disease_state: DiseaseState, rng) -> None:
         """Move on everybody whose phase has run out or who is moved by a rate.
@@ -468,18 +734,29 @@ class DiseaseModelAbstract:
             members = np.flatnonzero(disease_state.state == self._index[state])
             disease_state.timer[members] -= step_days
             finished[state] = members[disease_state.timer[members] <= 0]
+        dying = np.zeros(0, np.int64)
+        if DYING in self._index:
+            members = np.flatnonzero(disease_state.state == self._index[DYING])
+            disease_state.timer[members] -= step_days
+            dying = members[disease_state.timer[members] <= 0]
+        self._die(disease_state, dying, rng)
         for state, people in finished.items():
             phase = self.PHASES[state]
             if phase.fatal:
-                dies = rng.random(len(people)) < disease_state.fatality_risk[people]
-                self._enter(disease_state, people[dies], DEAD, rng)
-                disease_state.deaths += int(dies.sum())
+                protection = self.parameters["severe_protection"]
+                risk = disease_state.fatality_risk[people] * np.where(
+                    disease_state.reinfected[people], 1.0 - protection, 1.0
+                )
+                dies = rng.random(len(people)) < risk
+                if self.parameters["death_delay_days"] > 0:
+                    self._enter(disease_state, people[dies], DYING, rng)
+                else:
+                    self._die(disease_state, people[dies], rng)
                 people = people[~dies]
             if phase.branch_state is not None:
-                chance = np.minimum(
-                    self.parameters[phase.branch_parameter] * disease_state.branching[people], 1.0
+                branched = self._branched(
+                    disease_state, people, phase.branch_parameter, phase.branch_age_effect, rng
                 )
-                branched = rng.random(len(people)) < chance
                 self._enter(disease_state, people[branched], phase.branch_state, rng)
                 people = people[~branched]
             self._enter(disease_state, people, phase.next_state, rng)
@@ -487,12 +764,68 @@ class DiseaseModelAbstract:
             self._enter(disease_state, people, self.RATES[state].next_state, rng)
         disease_state.steps += 1
 
+    def _branched(
+        self, disease_state: DiseaseState, people: np.ndarray, parameter: str, effect: str, rng
+    ) -> np.ndarray:
+        """Which of `people` take a branch whose share is `parameter`, scaled by the age effect
+        `effect` and capped at 1 (no random numbers are drawn for a share of 0)."""
+        share = self.parameters[parameter]
+        if share <= 0:
+            return np.zeros(len(people), np.bool_)
+        scale = disease_state.asymptomatic if effect == "asymptomatic" else disease_state.branching
+        chance = np.minimum(share * scale[people], 1.0)
+        return rng.random(len(people)) < chance
+
+    def _symptomatic_chance(self, asymptomatic_scale) -> np.ndarray | float:
+        """The chance that an infection has symptoms, for the "asymptomatic" age effect given."""
+        if ASYMPTOMATIC not in self.STATE_COLORS:
+            return np.ones_like(asymptomatic_scale, dtype=np.float64)
+        share = self.parameters["asymptomatic_share"]
+        return 1.0 - np.minimum(share * np.asarray(asymptomatic_scale, np.float64), 1.0)
+
+    def _asymptomatic_weight(self) -> float:
+        """The infectiousness per day of the state without symptoms: what an infection with
+        symptoms spreads in all (its states' days weighted by their infectiousness), times the
+        relative infectiousness of an infection without symptoms, spread over its days."""
+        with_symptoms = sum(
+            course.probability * sum(days * weight for _, days, weight in course.stays if weight)
+            for course in self.courses(asymptomatic=False)
+        )
+        if math.isinf(with_symptoms):
+            return self.parameters["asymptomatic_infectiousness"]
+        return (
+            self.parameters["asymptomatic_infectiousness"]
+            * with_symptoms
+            / self.parameters["asymptomatic_days"]
+        )
+
+    def _die(self, disease_state: DiseaseState, people: np.ndarray, rng) -> None:
+        self._enter(disease_state, people, DEAD, rng)
+        disease_state.deaths += len(people)
+
     def apply_infections(self, disease_state: DiseaseState, infected: np.ndarray, rng) -> None:
         """Let the infected enter the disease, except those who died in the meantime."""
         infected = infected[disease_state.state[infected] != self.dead_index]
-        self._enter(disease_state, infected, self.INFECTION_ENTRY_STATE, rng)
+        entry = self.INFECTION_BRANCH
+        if entry is None:
+            self._enter(disease_state, infected, self.INFECTION_ENTRY_STATE, rng)
+        else:
+            branched = self._branched(
+                disease_state, infected, entry.parameter, entry.age_effect, rng
+            )
+            self._enter(disease_state, infected[branched], entry.state, rng)
+            self._enter(disease_state, infected[~branched], self.INFECTION_ENTRY_STATE, rng)
+        disease_state.reinfected[infected] = disease_state.immune_before[infected]
         disease_state.ever_infected[infected] = True
+        disease_state.immune_before[infected] = True
         disease_state.cumulative_infections += len(infected)
+        # how much a person spreads is a property of an infection (the virus they shed, how they
+        # behave while ill), drawn anew for every infection
+        dispersion = self.parameters["infectiousness_dispersion"]
+        if dispersion > 0:
+            disease_state.infectiousness[infected] = rng.gamma(
+                dispersion, 1.0 / dispersion, len(infected)
+            )
 
     def bury(self, disease_state: DiseaseState, people: np.ndarray) -> None:
         """Mark `people` who died of another disease as dead for this one."""
@@ -500,14 +833,24 @@ class DiseaseModelAbstract:
         disease_state.stays_home[people] = False
         disease_state.limits_outings[people] = False
 
-    def courses(self) -> list[Course]:
+    def courses(self, asymptomatic: bool = True) -> list[Course]:
         """Every way an infection can run, from the state an infected person enters.
 
         The chances are those of a person whose age effects are 1; a course that cannot happen
         is left out. Time spent in a state is its mean length, so the numbers derived from the
-        courses are expectations over many people.
+        courses are expectations over many people. With `asymptomatic` False only the courses
+        with symptoms, as if every infection had them.
         """
         found = []
+        with_symptoms = float(self._symptomatic_chance(1.0))
+        died_with_symptoms = 0.0
+        if "fatality" in self.parameters and with_symptoms > 0:
+            died_with_symptoms = min(self.parameters["fatality"] / with_symptoms, 1.0)
+
+        def branch_share(state: str, parameter: str) -> float:
+            if state == ASYMPTOMATIC and not asymptomatic:
+                return 0.0
+            return min(self.parameters[parameter], 1.0)
 
         def walk(state: str, probability: float, stays: tuple) -> None:
             if state in (self.initial_state(), DEAD):
@@ -523,19 +866,25 @@ class DiseaseModelAbstract:
                 return
             survive = 1.0
             if phase.fatal:
-                died = min(self.parameters["fatality"], 1.0)
+                died = died_with_symptoms
                 if died > 0:
-                    found.append(Course(probability * died, stays, DEAD))
+                    delay = self.parameters["death_delay_days"]
+                    found.append(Course(probability * died, (*stays, (DYING, delay, 0.0)), DEAD))
                 survive = 1.0 - died
             branch = 0.0
             if phase.branch_state is not None:
-                branch = min(self.parameters[phase.branch_parameter], 1.0)
+                branch = branch_share(phase.branch_state, phase.branch_parameter)
                 if branch > 0:
                     walk(phase.branch_state, probability * survive * branch, stays)
             if survive * (1.0 - branch) > 0:
                 walk(phase.next_state, probability * survive * (1.0 - branch), stays)
 
-        walk(self.INFECTION_ENTRY_STATE, 1.0, ())
+        entry = self.INFECTION_BRANCH
+        branch = 0.0 if entry is None else branch_share(entry.state, entry.parameter)
+        if branch > 0:
+            walk(entry.state, branch, ())
+        if branch < 1.0:
+            walk(self.INFECTION_ENTRY_STATE, 1.0 - branch, ())
         return found
 
     def infectious_days(self) -> float:
@@ -564,8 +913,10 @@ class DiseaseModelAbstract:
     def pair_transmission_probability(self) -> float:
         """Chance that an infectious person infects someone who stays next to them throughout.
 
-        Exact for gamma distributed phases: 1 - E[exp(-hazard * infectiousness-weighted time)],
-        the expectation over the ways the infection can run.
+        Exact for gamma distributed phases: 1 - E[exp(-hazard * X * infectiousness-weighted
+        time)], the expectation over the ways the infection can run and over the infectiousness X
+        of the infection (gamma with the shape `infectiousness_dispersion`, mean 1; 1 if that is
+        0). The expectation over X is taken over a fixed large sample of it.
         """
         transmission = self.parameters["transmission"]
         if transmission >= 1.0:
@@ -574,21 +925,30 @@ class DiseaseModelAbstract:
         if hazard == 0.0:
             return 0.0
         shape = self.parameters["duration_shape"]
+        dispersion = self.parameters["infectiousness_dispersion"]
+        scale = (
+            np.random.default_rng(0).gamma(dispersion, 1.0 / dispersion, INFECTIOUSNESS_SAMPLE)
+            if dispersion > 0
+            else np.ones(1)
+        )
         survival = 0.0
         for course in self.courses():
-            kept = course.probability
+            kept = np.full(len(scale), course.probability)
             for _, mean, weight in course.stays:
                 if weight > 0:
                     kept *= (
                         0.0
                         if math.isinf(mean)
-                        else (1.0 + hazard * weight * mean / shape) ** -shape
+                        else (1.0 + hazard * scale * weight * mean / shape) ** -shape
                     )
-            survival += kept
+            survival += float(kept.mean())
         return min(1.0, max(0.0, 1.0 - survival))
 
     def is_quiescent(self, disease_state: DiseaseState) -> bool:
-        """True when nobody is in a state that can still change, so nothing changes any more."""
+        """True when nobody is in a state that can still change, so nothing changes any more (never
+        while infections come from outside)."""
+        if self.parameters["outside_infections"] > 0:
+            return False
         return not np.isin(disease_state.state, self._moving).any()
 
     def lasts_for_life(self, state: str) -> bool:
@@ -619,15 +979,30 @@ class DiseaseModelAbstract:
         )
 
     def _require_effective_age_effects(self) -> None:
+        branch_effects = {
+            phase.branch_age_effect
+            for phase in self.PHASES.values()
+            if phase.branch_state is not None
+        }
+        if self.INFECTION_BRANCH is not None:
+            branch_effects.add(self.INFECTION_BRANCH.age_effect)
         used = {
             "fatality": any(phase.fatal for phase in self.PHASES.values()),
-            "branching": any(phase.branch_state is not None for phase in self.PHASES.values()),
+            "branching": "branching" in branch_effects,
+            "starting_share": bool(self.STARTING_SHARES),
+            "asymptomatic": ASYMPTOMATIC in self.STATE_COLORS,
         }
         for effect, applies in used.items():
             if self.age_effects[effect] and not applies:
+                missing = {
+                    "fatality": "fatal phase",
+                    "branching": "branch",
+                    "starting_share": "starting share",
+                    "asymptomatic": "course without symptoms",
+                }[effect]
                 raise ValueError(
                     f"Age effect '{effect}' does nothing in {type(self).__name__}: "
-                    f"it has no {'fatal phase' if effect == 'fatality' else 'branch'}"
+                    f"it has no {missing}"
                 )
 
     def _moved_by_rates(self, disease_state: DiseaseState, rng) -> dict[str, np.ndarray]:
@@ -643,12 +1018,25 @@ class DiseaseModelAbstract:
                 moved[state] = members[rng.random(len(members)) < chance]
         return moved
 
-    def _new_infections(self, disease_state, exposure, state_index, scale, rng) -> np.ndarray:
-        """People in `state_index` who catch the disease this step; `scale` weakens the exposure."""
-        candidates = np.flatnonzero((disease_state.state == state_index) & (exposure > 0))
-        chance = 1.0 - (1.0 - self.parameters["transmission"]) ** (
-            exposure[candidates] * scale * self.step_days
-        )
+    def _new_infections(
+        self, disease_state, exposure, weight, state_index, scale, rng
+    ) -> np.ndarray:
+        """People in `state_index` who catch the disease this step; `scale` weakens the exposure.
+
+        The hazard is that of the infectious contacts, -ln(1 - transmission) per day of exposure,
+        plus that of infections from outside the town, weighted by `weight`, the person's
+        susceptibility (which `exposure` already holds).
+        """
+        outside = self.parameters["outside_infections"] / DAYS_PER_YEAR
+        if outside > 0:
+            candidates = np.flatnonzero(disease_state.state == state_index)
+        else:
+            candidates = np.flatnonzero((disease_state.state == state_index) & (exposure > 0))
+        transmission = self.parameters["transmission"]
+        contact = -math.log(1.0 - transmission) if transmission < 1.0 else math.inf
+        exposed = exposure[candidates]
+        hazard = np.where(exposed > 0, contact * exposed, 0.0) + outside * weight[candidates]
+        chance = 1.0 - np.exp(-hazard * scale * self.step_days)
         return candidates[rng.random(len(candidates)) < chance]
 
     def _age_multiplier(self, effect: str, age: np.ndarray) -> np.ndarray:
@@ -677,9 +1065,10 @@ class DiseaseModelAbstract:
             rng.random(len(people)) < self.parameters["limit_outings"],
         )
         phase = self.PHASES.get(state)
-        if phase is not None:
+        if phase is not None or state == DYING:
             shape = self.parameters["duration_shape"]
-            mean = self.parameters[phase.duration_parameter]
+            name = "death_delay_days" if state == DYING else phase.duration_parameter
+            mean = self.parameters[name]
             stays = rng.gamma(shape, mean / shape, len(people))
             # a stay "for life" is never left, however irregular stays are; the gamma draw is
             # kept so that the random stream of the other stays does not depend on it

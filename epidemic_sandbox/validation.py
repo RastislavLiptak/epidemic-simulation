@@ -48,6 +48,7 @@ from epidemic_sandbox.town import (
     TownParameters,
     build_town,
     destination_coordinates,
+    destination_venues,
     load_town_parameters,
 )
 
@@ -388,7 +389,8 @@ def validate_town(params: TownParameters, population: int = 150_000, seed: int =
         params,
         np.random.default_rng(seed),
     )
-    size = town.work_people[(town.role == WORKER) & (town.place_kind == WORKER)]
+    in_firm = (town.role == WORKER) & (town.place_kind == WORKER) & ~town.activity_staff
+    size = town.work_people[in_firm]
     return [
         share_check(
             "workers in firms under 10",
@@ -430,6 +432,7 @@ def simulated_contact_matrices(
         for hour in range(HOURS_PER_DAY):
             codes = destination_codes_at(schedule, hour + 0.5, params.schedule.max_events)
             x, y = destination_coordinates(town, codes, people, schedule)
+            venue = destination_venues(town, codes, people, schedule)
             layer_of = np.select(
                 [
                     codes == HOME,
@@ -441,7 +444,7 @@ def simulated_contact_matrices(
             )
             grid = build_grid(x, y, arena, cells)
             for index, layer in enumerate(LAYERS):
-                first, second = find_pairs(x, y, layer_of == index, *grid, cells, radius)
+                first, second = find_pairs(x, y, layer_of == index, venue, *grid, cells, radius)
                 pairs[layer].append(first.astype(np.int64) * population + second)
         for layer in LAYERS:
             unique = np.unique(np.concatenate(pairs[layer]))
@@ -496,6 +499,166 @@ def validate_contacts(
     return checks
 
 
+# Conversations happen within the personal and social distance of people, up to about 3.7 m
+# (Hall 1966, The Hidden Dimension: social distance 1.2-3.7 m); the contact surveys count a
+# conversation in the presence of somebody without a distance.
+CONVERSATION_DISTANCE = (1.2, 3.7)
+# Stehle et al. 2011 (PLoS ONE 6:e23176) measured face-to-face contact within 1-1.5 m in a primary
+# school: 3.2 times as much time with classmates as with children of other classes, 2.4 to 5.3 in
+# the ten classes (Table 3). Grades 1-5 are ages 6 to 10.
+SCHOOL_MIXING = {"distance": 1.5, "ages": (6, 11), "range": (2.4, 5.3), "value": 3.2}
+
+
+def _town_week(params: TownParameters, population: int, arena: float, seed: int, observe) -> None:
+    """Run the town without diseases for a week, from a Monday of the school term, and call
+    `observe(model, day)` after every step."""
+    from epidemic_sandbox.epidemic_model import EpidemicModel
+    from epidemic_sandbox.experiment_config import STEPS_PER_DAY, ExperimentConfig
+
+    world = {
+        "population": population,
+        "arena_area": arena**2,
+        "arena_size": arena,
+        "seed": seed,
+        "steps_per_day": STEPS_PER_DAY,
+        "max_days": 0,
+        "runs": 1,
+    }
+    model = EpidemicModel(ExperimentConfig(world, {}), params)
+    for day in range(DAYS_PER_WEEK):
+        for _step in range(STEPS_PER_DAY):
+            model.step()
+            observe(model, day)
+
+
+def _pairs(model, radius: float, member: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    arena = float(model.world["arena_size"])
+    cells = max(1, min(int(arena // radius), 2 * math.isqrt(model.population)))
+    grid = build_grid(model.x, model.y, arena, cells)
+    return find_pairs(model.x, model.y, member, model.venue, *grid, cells, radius)
+
+
+def simulated_contact_levels(
+    params: TownParameters, population: int, arena: float, radii, seed: int
+) -> tuple[np.ndarray, dict]:
+    """Mean number of different people a person is within each radius of per day, by the kind of
+    place as the person would write it in a contact diary (home 0, school 1, work 2, other 3: a
+    resident of a care home is at home, the teacher of a class at work, the pupil at school), over
+    a week (5 weekdays and 2 weekend days, the 5:2 weighting); returns {radius: [place, person]}
+    and the ages."""
+    levels = {radius: np.zeros((len(LAYERS), population)) for radius in radii}
+    pairs = {radius: [[] for _ in LAYERS] for radius in radii}
+    ages = []
+
+    def observe(model, day):
+        town = model.town
+        ages[:] = [town.age]
+        code = model._code.copy()
+        code[model._detour[0]] = HOME
+        code[model._detour[1]] = WORK
+        layer = np.select(
+            [
+                (code == HOME) & (model.venue == town.household),
+                (code == WORK) & town.at_school & (town.place_kind == town.role),
+                code == WORK,
+            ],
+            [0, 1, 2],
+            3,
+        )
+        for radius in radii:
+            first, second = _pairs(model, radius, model.venue >= 0)
+            one, other = np.concatenate([first, second]), np.concatenate([second, first])
+            for index in range(len(LAYERS)):
+                chosen = layer[one] == index  # the contact as `one` sees it
+                key = one[chosen].astype(np.int64) * population + other[chosen]
+                pairs[radius][index].append(key)
+        if model.steps % model.world["steps_per_day"] == 0:  # the end of a day
+            for radius in radii:
+                for index in range(len(LAYERS)):
+                    unique = np.unique(np.concatenate(pairs[radius][index]))
+                    levels[radius][index] += (
+                        np.bincount(unique // population, minlength=population) / DAYS_PER_WEEK
+                    )
+                    pairs[radius][index].clear()
+
+    _town_week(params, population, arena, seed, observe)
+    return ages[0], levels
+
+
+def read_polymod_levels() -> list[dict]:
+    """Contacts per day by age band and place in Germany and Poland (POLYMOD), with their standard
+    errors; see data/reference/derivations/polymod_contacts.py."""
+    with (REFERENCE_DIRECTORY / "polymod_contacts_de_pl.csv").open(newline="") as table:
+        return [{key: float(value) for key, value in row.items()} for row in csv.DictReader(table)]
+
+
+def validate_contact_levels(
+    params: TownParameters, population: int = 3000, seed: int = 0
+) -> list[Check]:
+    """How many different people the people of the town meet in a day, against the contact survey.
+
+    The number of different people within the near end of conversation distance should not be
+    above what the survey found, nor the number within the far end below it: the check passes when
+    the range of the town overlaps the 95 % confidence interval of the survey's mean. All
+    contacts: the survey of 2006 in Germany and Poland had other kindergarten attendance and
+    employment of the old than Czechia in 2019, so the places are not compared one by one.
+    """
+    near, far = CONVERSATION_DISTANCE
+    age, levels = simulated_contact_levels(
+        params, population, 2000.0 * math.sqrt(population / 3000), (near, far), seed
+    )
+    checks = []
+    for row in read_polymod_levels():
+        band = (age >= row["age_from"]) & (age < row["age_to"])
+        low, high = (float(levels[radius].sum(axis=0)[band].mean()) for radius in (near, far))
+        margin = 1.96 * row["all_se"]
+        checks.append(
+            Check(
+                f"contacts a day {int(row['age_from'])}-{int(row['age_to']) - 1}",
+                row["all"],
+                f"town {low:.1f} to {high:.1f} (survey ±{margin:.1f})",
+                math.nan,
+                low <= row["all"] + margin and row["all"] - margin <= high,
+                "POLYMOD, Germany and Poland (polymod_contacts_de_pl.csv)",
+            )
+        )
+    return checks
+
+
+def validate_school_mixing(
+    params: TownParameters, population: int = 6000, seed: int = 0
+) -> list[Check]:
+    """Time young pupils spend with classmates against time with pupils of other classes."""
+    distance, (young_from, young_to) = SCHOOL_MIXING["distance"], SCHOOL_MIXING["ages"]
+    counts = np.zeros(2)
+
+    def observe(model, day):
+        town = model.town
+        if day >= WEEKEND_FROM_DAY:
+            return
+        pupil = town.role == SCHOOL
+        first, second = _pairs(model, distance, pupil & (model._code == WORK) & (model.venue >= 0))
+        young = (town.age >= young_from) & (town.age < young_to) & pupil
+        ends = young[first].astype(int) + young[second].astype(int)
+        classmates = town.work_venue[first] == town.work_venue[second]
+        counts[0] += (ends * classmates).sum()
+        counts[1] += (ends * ~classmates).sum()
+
+    _town_week(params, population, 2000.0 * math.sqrt(population / 3000), seed, observe)
+    ratio = counts[0] / max(counts[1], 1)
+    low, high = SCHOOL_MIXING["range"]
+    return [
+        Check(
+            "school: classmates to others",
+            float(ratio),
+            f"{SCHOOL_MIXING['value']} ({low} to {high})",
+            math.nan,
+            low <= ratio <= high,
+            "Stehle et al. 2011, PLoS ONE 6:e23176, Table 3",
+        )
+    ]
+
+
 def format_report(checks: list[Check]) -> str:
     lines = [f"{'check':32s} {'observed':>9s}  {'expected':24s} {'p':>8s}  result"]
     for check in checks:
@@ -525,6 +688,8 @@ def main() -> None:
     checks = validate_population(params, arguments.population, arguments.seed)
     checks += validate_town(params, seed=arguments.seed)
     checks += validate_contacts(params, arguments.contact_population, seed=arguments.seed)
+    checks += validate_contact_levels(params, seed=arguments.seed)
+    checks += validate_school_mixing(params, seed=arguments.seed)
     print(format_report(checks))
     failed = [check.name for check in checks if not check.passed]
     print(f"\n{len(checks) - len(failed)} of {len(checks)} checks passed")

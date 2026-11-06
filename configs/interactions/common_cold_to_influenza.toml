@@ -1,0 +1,23 @@
+# Having a cold makes people less likely to catch influenza. Source: among 44,230 episodes of
+# respiratory illness in Scotland tested for 11 virus groups over 9 years, rhinovirus and influenza
+# A were found together less often than expected (odds ratio 0.27, P < 0.001, adjusted for age,
+# sex and season; Nickbakhsh et al. 2019, PNAS); at Yale-New Haven Hospital the odds ratio was
+# 0.16 (95% CI 0.09-0.28) among 13,707 adult samples, and rhinovirus infection of human airway
+# cell cultures cut influenza A virus RNA about 50,000-fold 3 days later through the interferon
+# response (Wu et al. 2020, Lancet Microbe), which gives the direction. Estimate: the odds ratio of
+# co-detection is used as a ratio of risks, while the person is infectious with rhinovirus (no
+# ratio of risks was found). Only a cold with symptoms counts: the co-detections are in episodes of
+# respiratory illness, and how much a rhinovirus infection without symptoms interferes is not known.
+# Limits: the data of Nickbakhsh et al. say explicitly that they cannot show which virus acts on
+# which (the direction comes from the cell cultures of Wu et al. only); an odds ratio of co-detection
+# is not a risk ratio, and the period in which a person tests positive for rhinovirus (about 1.7
+# weeks by PCR in Byington et al. 2015) is longer than the 5.4 days that the model calls infectious.
+# A check in the default town (12 runs of 120 days with the cold settled for 100 days before the
+# influenza starts, 2.2 % of the people ill with a cold at a time): influenza infected 287 people on
+# average with the interaction and 266 without, within the run-to-run spread (standard error about
+# 22); with so few people ill with a cold at a time, the effect expected is about 2 % fewer.
+source = "common_cold"
+states = ["infectious"]
+target = "influenza"
+effect = "susceptibility"
+factor = 0.27

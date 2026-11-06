@@ -7,6 +7,8 @@ leak into the application.
 from epidemic_sandbox.disease_models.disease_model_abstract import (
     COMMON_PARAMETERS,
     DEAD,
+    DEATH_PARAMETERS,
+    DYING,
     EXPOSED,
     IMMUNITY_PARAMETERS,
     INFECTIOUS,
@@ -18,7 +20,7 @@ from epidemic_sandbox.disease_models.disease_model_abstract import (
 )
 from epidemic_sandbox.parameter_spec import ParameterSpec
 
-ASYMPTOMATIC = "asymptomatic"
+MILD = "mild"
 HOSPITAL = "hospital"
 VACCINATED = "vaccinated"
 
@@ -34,34 +36,37 @@ def share(label: str, default: float) -> ParameterSpec:
 class ForkModel(DiseaseModelAbstract):
     """Every mechanism of the base class but vaccination.
 
-    Susceptible -> exposed -> asymptomatic (a share, weaker spreaders, carry on as usual) or
-    infectious (symptomatic) -> hospital (a share, confined, not infectious) -> recovered or dead.
+    Susceptible -> exposed -> mild (a share, weaker spreaders without symptoms, who carry on as
+    usual) or infectious (symptomatic) -> hospital (a share, confined, not infectious) ->
+    recovered or dead.
     """
 
     PARAMETERS = {
         **COMMON_PARAMETERS,
+        **DEATH_PARAMETERS,
         **IMMUNITY_PARAMETERS,
         "incubation_days": duration("Latent period", 2.0),
-        "asymptomatic_days": duration("Asymptomatic period", 4.0),
+        "mild_days": duration("Mild period", 4.0),
         "infectious_days": duration("Symptomatic period", 6.0),
         "hospital_days": duration("Hospital stay", 10.0),
-        "asymptomatic_share": share("Asymptomatic share", 0.4),
+        "mild_share": share("Mild share", 0.4),
         "hospital_share": share("Hospitalised share", 0.2),
-        "asymptomatic_infectiousness": share("Asymptomatic infectiousness", 0.5),
+        "mild_infectiousness": share("Mild infectiousness", 0.5),
     }
     STATE_COLORS = {
         SUSCEPTIBLE: "#34a853",
         EXPOSED: "#fbbc04",
-        ASYMPTOMATIC: "#ff9800",
+        MILD: "#ff9800",
         INFECTIOUS: "#ea4335",
         HOSPITAL: "#7b1fa2",
         RECOVERED: "#9aa0a6",
+        DYING: "#5d4037",
         DEAD: "#202124",
     }
-    INFECTIOUS_STATES = frozenset({ASYMPTOMATIC, INFECTIOUS})
+    INFECTIOUS_STATES = frozenset({MILD, INFECTIOUS})
     SYMPTOMATIC_STATES = frozenset({INFECTIOUS})
     CONFINED_STATES = frozenset({HOSPITAL})
-    STATE_INFECTIOUSNESS = {ASYMPTOMATIC: "asymptomatic_infectiousness"}
+    STATE_INFECTIOUSNESS = {MILD: "mild_infectiousness"}
     INFECTION_ENTRY_STATE = EXPOSED
     INITIAL_CASE_STATE = INFECTIOUS
     PROTECTION = {RECOVERED: "immunity_protection"}
@@ -69,10 +74,10 @@ class ForkModel(DiseaseModelAbstract):
         EXPOSED: Phase(
             INFECTIOUS,
             "incubation_days",
-            branch_state=ASYMPTOMATIC,
-            branch_parameter="asymptomatic_share",
+            branch_state=MILD,
+            branch_parameter="mild_share",
         ),
-        ASYMPTOMATIC: Phase(RECOVERED, "asymptomatic_days"),
+        MILD: Phase(RECOVERED, "mild_days"),
         INFECTIOUS: Phase(
             RECOVERED, "infectious_days", branch_state=HOSPITAL, branch_parameter="hospital_share"
         ),
@@ -90,6 +95,7 @@ class PlainModel(DiseaseModelAbstract):
 
     PARAMETERS = {
         **COMMON_PARAMETERS,
+        **DEATH_PARAMETERS,
         **IMMUNITY_PARAMETERS,
         "infectious_days": duration("Infectious period", 7.0),
     }
@@ -97,6 +103,7 @@ class PlainModel(DiseaseModelAbstract):
         SUSCEPTIBLE: "#34a853",
         INFECTIOUS: "#ea4335",
         RECOVERED: "#9aa0a6",
+        DYING: "#5d4037",
         DEAD: "#202124",
     }
     INFECTIOUS_STATES = frozenset({INFECTIOUS})
@@ -114,6 +121,7 @@ class LatentModel(DiseaseModelAbstract):
 
     PARAMETERS = {
         **COMMON_PARAMETERS,
+        **DEATH_PARAMETERS,
         **IMMUNITY_PARAMETERS,
         "incubation_days": duration("Latent period", 3.0),
         "infectious_days": duration("Infectious period", 6.0),
@@ -123,6 +131,7 @@ class LatentModel(DiseaseModelAbstract):
         EXPOSED: "#fbbc04",
         INFECTIOUS: "#ea4335",
         RECOVERED: "#9aa0a6",
+        DYING: "#5d4037",
         DEAD: "#202124",
     }
     INFECTIOUS_STATES = frozenset({INFECTIOUS})
@@ -139,8 +148,17 @@ class LatentModel(DiseaseModelAbstract):
 class RepeatModel(DiseaseModelAbstract):
     """Susceptible -> infectious -> susceptible again (no immunity), or dead."""
 
-    PARAMETERS = {**COMMON_PARAMETERS, "infectious_days": duration("Infectious period", 5.0)}
-    STATE_COLORS = {SUSCEPTIBLE: "#34a853", INFECTIOUS: "#ea4335", DEAD: "#202124"}
+    PARAMETERS = {
+        **COMMON_PARAMETERS,
+        **DEATH_PARAMETERS,
+        "infectious_days": duration("Infectious period", 5.0),
+    }
+    STATE_COLORS = {
+        SUSCEPTIBLE: "#34a853",
+        INFECTIOUS: "#ea4335",
+        DYING: "#5d4037",
+        DEAD: "#202124",
+    }
     INFECTIOUS_STATES = frozenset({INFECTIOUS})
     INFECTION_ENTRY_STATE = INFECTIOUS
     INITIAL_CASE_STATE = INFECTIOUS
@@ -156,6 +174,7 @@ class VaccinationModel(DiseaseModelAbstract):
 
     PARAMETERS = {
         **COMMON_PARAMETERS,
+        **DEATH_PARAMETERS,
         **IMMUNITY_PARAMETERS,
         "infectious_days": duration("Infectious period", 5.0),
         "vaccination_rate": ParameterSpec("Vaccination rate", "Test value.", 0.1, 0.0, 5.0, 0.01),
@@ -169,6 +188,7 @@ class VaccinationModel(DiseaseModelAbstract):
         VACCINATED: "#4285f4",
         INFECTIOUS: "#ea4335",
         RECOVERED: "#9aa0a6",
+        DYING: "#5d4037",
         DEAD: "#202124",
     }
     INFECTIOUS_STATES = frozenset({INFECTIOUS})

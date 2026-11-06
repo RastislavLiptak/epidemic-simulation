@@ -102,7 +102,7 @@ def test_the_run_description_lists_diseases_interactions_and_every_run_s_people(
     json.dumps(run)
 
 
-def test_preview_reports_contacts_reproduction_number_and_household_risk():
+def test_preview_reports_contacts_and_household_risk():
     config = experiment_config(
         {
             "a": disease_definition("plain", transmission=0.5, infectious_days=4.0),
@@ -113,9 +113,11 @@ def test_preview_reports_contacts_reproduction_number_and_household_risk():
     json.dumps(preview)
     a, b = preview["diseases"]["a"], preview["diseases"]["b"]
     assert 0.1 < a["mean_contacts"] < 20
-    assert a["mean_field_r0"] == pytest.approx(0.6931 * a["mean_contacts"] * 4.0, rel=1e-3)
     assert 0 < a["household_risk"] < 1
-    assert b["mean_field_r0"] is None and b["household_risk"] == 1.0
+    assert b["household_risk"] == 1.0
+    # a reproduction number cannot be told from the settings alone: contacts are shared in
+    # households and workplaces (python -m epidemic_sandbox.calibrate measures it in the town)
+    assert "mean_field_r0" not in a
 
 
 def test_ui_constants_come_from_the_app_config_and_the_run_limit():

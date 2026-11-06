@@ -75,3 +75,21 @@ def test_validation_fails_for_a_population_with_the_wrong_age_structure(town_par
     )
     checks = validation.validate_population(young, count=50_000)
     assert any(not check.passed for check in checks if check.name.startswith("age"))
+
+
+def test_people_of_every_age_meet_about_as_many_others_a_day_as_the_survey_found(town_parameters):
+    failed = [c.name for c in validation.validate_contact_levels(town_parameters) if not c.passed]
+    assert not failed, failed
+
+
+def test_young_pupils_spend_most_of_their_time_at_school_with_their_class(town_parameters):
+    failed = [c.name for c in validation.validate_school_mixing(town_parameters) if not c.passed]
+    assert not failed, failed
+
+
+def test_the_contact_levels_would_catch_a_town_where_everybody_stays_at_one_spot(town_parameters):
+    # Who meets few different people (nobody moves about) fails the check for the young, who
+    # otherwise meet many at school.
+    frozen = replace(town_parameters, dwell_hours=1e9)
+    checks = validation.validate_contact_levels(frozen)
+    assert not all(check.passed for check in checks)

@@ -222,13 +222,46 @@ mean_size = 66
 #   Coll., not opened; search summary), and residents also share corridors and day rooms, hence 16.
 #   It sets how many residents are close to each other.
 area_mean = 16.0
-# Assumption: there is no binding staffing standard (Public Defender of Rights 2023,
-#   https://ochrance.cz/uploads-import/ESO/NZ6-2023-NZ-dopln%C4%9Bn%C3%ADMHMP.pdf); homes name one
-#   worker for three clients as the goal, which is used. It is the staff present, all at once.
-staff_per_resident = 0.33
+# Source: there is no binding national staffing standard (Public Defender of Rights 2023,
+#   https://ochrance.cz/uploads-import/ESO/NZ6-2023-NZ-dopln%C4%9Bn%C3%ADMHMP.pdf), but the regions
+#   set minimums for funding. That of the Karlovy Vary Region (2022, updated 2023,
+#   https://wwwtest.kr-karlovarsky.cz/system/files/2023-12/Minimalni_personalni_standardy.pdf):
+#   30 care workers' jobs per 80 beds, "kazdy den pracuje 11,5 uvazku pracovnika, napr. 8 ve dne a
+#   3,5 v noci", so 8 / 80 = 0.10 care workers per resident on the day shift. Nurses are not in it.
+#   The night shift is not modelled: the simulated day ends before midnight (a schedule never runs
+#   over it), so the 3.5 night workers per 80 beds, who look in on residents asleep in their rooms,
+#   are left out.
+staff_per_resident = 0.10   # care workers on the day shift, per resident
+# Source: a shift may last at most 12 hours (Labour Code 262/2006 Coll., section 83(1)), and day
+#   shifts of 12 hours are usual in residential care (e.g. "denni dvanactihodinove smeny", job
+#   advertisement of Domov Slunicko Ostrava, 2026). Assumption: the day shift starts at 6, when the
+#   night quiet of the homes ends (see day_hours).
+shift_hours = [6, 18]
+# Source: 37.5 hours a week in continuous operation (Labour Code, section 79(2)(b)). With 12-hour
+#   shifts a worker is on 37.5 / 84 = 45 % of the days, every day of the week alike.
+weekly_hours = 37.5
 # Assumption: care is among the most female jobs; the share of women among teachers of the youngest
 #   children (below) is taken for it.
 staff_female_share = 0.95
+# Source: residents are up and about in the home outside the night quiet, 22:00 to 6:00 ("Doba
+#   nocniho klidu je stanovena od 22:00 do 6:00 hodin", house rules of the Nadeje home for the
+#   elderly, https://nadeje.cz/wp-content/uploads/2026/01/Domaci-rad-DS.pdf; no national rule).
+#   Then they move about the home (day rooms, dining room); at night they are in their rooms.
+day_hours = [6, 22]
+# Derived: rooms of the homes for the elderly at the end of 2019, 12,656 single, 10,133 double and
+#   1,468 with three or more beds (MPSV, Statisticka rocenka z oblasti prace a socialnich veci 2019,
+#   table 6.2, https://www.mpsv.cz/cms/documents/f932ecba-bc00-848b-aaee-38340fdcd81d/Statisticka_rocenka_z_oblasti_prace_a_socialnich_veci_2019.pdf).
+#   Counting the last group as three beds: 12,656 / 20,266 / 4,404 beds, shares of the beds in
+#   rooms of 1, 2 and 3 beds. Roommates are together at night; rooms are separate venues.
+room_bed_shares = [0.339, 0.543, 0.118]
+# Limit (a check, not fitted): the residents of a home are one household for transmission (they
+#   infect each other at the household rate, staff and visitors at the rate between households).
+#   In an uncontrolled COVID-19 epidemic of a town of 30,000 (4 runs, 74-76 % of the town infected)
+#   21-38 % of the residents were infected; outbreaks in homes infected 45 % (95 % CI 32-58,
+#   EClinicalMedicine 2021, 49 studies) or 42 % (38-47, Open Forum Infect Dis 2022), 67 % without
+#   universal masking. Treating only roommates as a household and the other residents as anybody
+#   else infected 99-100 %. No measurement of how long residents spend together in the day rooms
+#   was found to settle it between the two; the home stays one household, which errs low.
 
 [education]
 # [from age, to age, share of men, share of women] attending: kindergarten, school and university.
@@ -263,12 +296,17 @@ retired_from = 60
 # [the youngest child is under this age, share of the mothers at work].
 # Derived: 44.4 % of women aged 25-49 whose youngest child is under 6 had a job in 2019 (Eurostat
 #   lfst_hheredch; 42.9 % in 2021), against 89 % of those without children and 97 % of such men (2021).
-#   Under-3s are at home:
-#   most Czech women return to work when the child is 3 (Politicka ekonomie 2016, 64(6):695-712,
-#   https://www.vse.cz/polek/1104; search summary). The split of 44.4 % into the two rows is Fitted:
-#   0.20 for under-3s is an Assumption, and 0.88 from 3 is the value for which the validation share of
-#   mothers of under-6s at work comes out at 44 % (0.44-0.46 on six seeds).
-mother_employment = [[3, 0.20], [6, 0.88]]
+#   Source for the under-3s: 21.7 % of the women whose youngest child is 0-2 years old were
+#   employed in 2019 (OECD Family Database, LMF1.2, from the EU-LFS,
+#   https://webfs.oecd.org/els-com/Family_Database/LMF_1_2_Maternal_Employment.xlsx); the labour
+#   force survey counts women on maternity leave (28 weeks) as employed (CZSO, methodology of the
+#   LFS), and in 2021 9.2 of the 20.4 % were absent on it. Only 6.3 % of the under-3s are in formal
+#   childcare (Eurostat ilc_caindformal, 2019), so a mother of an under-3 who has a job stays at
+#   home whenever no other adult of the household is there (see [childcare]); the model counts her
+#   as employed, as the survey does. Fitted: 0.88 from 3 is the value for which the validation
+#   share of mothers of under-6s with a job comes out at 44 % (to be checked again after the
+#   under-3 row changed from an assumed 0.20 to the sourced 0.217).
+mother_employment = [[3, 0.217], [6, 0.88]]
 # Assumption: the age of a mother of a small child. Almost all births are to women of 18 to 49.
 mother_ages = [18, 50]
 
@@ -300,12 +338,35 @@ max_site_contacts = 500      # largest accepted number of people within contact 
 #   third to more than twice the average activity, a moderate spread chosen because the factor only
 #   multiplies the chance of going out and is not a number of contacts.
 sociability_sigma = 0.5      # log-normal spread of how socially active people are (mean 1)
+# How long, on average, a person stays at one spot of a place (a desk, a table, a shelf) before
+#   moving to another spot of it. The expected number of people within reach does not depend on it
+#   (that is set by the floor space per person), only how many different people that makes.
+#   Source for schools: a lesson lasts 45 minutes (Act 561/2004 Coll., section 26(1)) and pupils
+#   change places in the breaks. Assumption: the same for the other places (people get up, go to a
+#   meeting, move to another shelf); no measurement was found. The validation of the number of
+#   different people met in a day (validation.py) passes over a wide range of this value, so it
+#   does not pin it down.
+dwell_hours = 0.75
 
 # Places where people spend the day. Mean size (people per place), log-normal spread of sizes,
 # distance decay of the choice as a share of the arena side, and the floor space per person: every
 # place has its own, drawn from a log-normal distribution (mean in m2, spread).
 # Education places are divided into classes of children of the same age; every class has staff,
-# recruited from the workers near it (pupils_per_teacher sets how many).
+# recruited from the workers near it (pupils_per_teacher sets how many, at least one a class).
+# Every class is a room of its own; in the breaks and at lunch pupils and teachers meet in the
+# common rooms of the school (common_share).
+#
+# common_share, for all three: Fitted: the share of their time at school that pupils and teachers
+#   spend in the common rooms (corridors, canteen), as crowded as the classes. The target is the
+#   only measurement found: children of grades 1-5 spent 3.2 times as much face-to-face time with
+#   their classmates as with children of other classes (Stehle et al. 2011, PLoS ONE 6:e23176,
+#   "three times" in the text, 3.2 from its Table 3; 79 % of the time across classes at lunch).
+#   In the model, pupils aged 6-10 within 1.5 m of other pupils over a school week, 3 towns of
+#   6,000: 0.20 gives 3.90, 0.23 gives 3.19, 0.25 gives 2.75. Check not used in the fit: a Czech
+#   school morning of five 45-minute lessons has 45 minutes of breaks (decree 48/2005 Coll.,
+#   section 1(5): at least 10 minutes, one of 15) and about half an hour of lunch (86.8 % of the
+#   pupils of basic schools eat in the school canteen, MSMT 2018/19), 25 % of the time out of class.
+#   Assumption: the same share for kindergartens and universities, which were not measured.
 #
 # Model, for all places: size_sigma is the log-normal spread of the sizes of places of one kind
 #   (0 would make them equal), distance_scale is how quickly the wish to go to a place falls with
@@ -339,6 +400,7 @@ class_size = 22
 class_age_span = 8
 pupils_per_teacher = 13.0
 staff_female_share = 0.995
+common_share = 0.23
 # school (basic and upper secondary schools together)
 #   mean_size: Derived: 964,571 pupils in 4,238 basic schools and about 430 thousand in 1,285
 #     secondary schools in 2021/22 (same source as above), 252 per school.
@@ -360,6 +422,7 @@ class_size = 20
 class_oldest_age = 19
 pupils_per_teacher = 14.1
 staff_female_share = 0.77
+common_share = 0.23
 # university: Assumption for the first three values (no statistic found).
 #   mean_size 3000: faculties and campuses, not whole universities, since students attend one
 #     building; Czech universities have a few thousand to tens of thousands of students.
@@ -379,6 +442,7 @@ area_sigma = 0.4
 class_size = 40
 pupils_per_teacher = 16.8
 staff_female_share = 0.38
+common_share = 0.23
 # work:
 #   solo_share 0.20: Derived: 1.21 million of the 1.25 million enterprises of the business economy
 #     have under 10 persons, 1.14 per enterprise on average (Eurostat sbs_sc_ovw, Czechia 2021), so
@@ -495,6 +559,10 @@ age_scale = 40.0
 area_mean = 9.0
 area_sigma = 0.4
 presence_share = 0.025
+# Derived: 347.9 thousand of the 5,351.4 thousand people employed in Czechia in 2019 worked in retail
+#   trade (NACE G47; Eurostat nama_10_a64_e, domestic concept, national accounts), 6.5 %. They work
+#   in the shops, among the customers, and are recruited from the workers who live nearby.
+staff_share = 0.065
 [activities.shopping.probability]
 homebound = [0.319, 0.45]
 preschool = [0.319, 0.45]
@@ -518,6 +586,10 @@ age_scale = 14.0
 area_mean = 2.5
 area_sigma = 0.4
 presence_share = 0.026
+# Derived: 193.0 thousand of the 5,351.4 thousand people employed in Czechia in 2019 worked in
+#   accommodation and food service (NACE I; Eurostat nama_10_a64_e, domestic concept), 3.6 %. The
+#   sector includes hotels, whose guests the town does not have; restaurants and cafes are most of it.
+staff_share = 0.036
 [activities.food.probability]
 homebound = [0.07, 0.13]
 preschool = [0.0, 0.13]
@@ -551,8 +623,22 @@ remote = [0.683, 0.95]
 retired = [0.861, 0.95]
 resident = [0.00, 0.00]
 
+# Visits are to friends of a similar age and to relatives of the next generation (parents, grown-up
+# children), who are about a generation older or younger.
+# family_share: Derived: the share of relatives among the people one meets at least every week.
+#   Getting together in person with relatives outside the household and with friends at least
+#   weekly, Czechia 2015 (EU-SILC ad hoc module, Eurostat ilc_scp09), relatives and friends: 16-24
+#   years 51.6 and 83.6 %, 25-34 52.3 and 59.1, 35-44 48.6 and 40.1, 45-54 44.3 and 33.0, 55-64 49.4
+#   and 32.5, 65-74 48.4 and 29.1, 75+ 52.7 and 23.2; relatives / (relatives + friends) = 0.38,
+#   0.47, 0.55, 0.57, 0.60, 0.62, 0.69 (2022: the same within a few points). The survey counts all
+#   relatives (also siblings and cousins), the model only the next generation, which they mostly are
+#   for the old and the young. Assumption: the 16-24 value for 10-15, who are not asked.
+# generation_gap: Derived: the mean age of women at childbirth in Czechia was 24.7 to 27.2 years in
+#   1970-2000 (Eurostat demo_find), when the parents of today's adults had them: the mean, 25.4.
 [activities.visit]
 kind = "visit"
+family_share = [[0, 25, 0.38], [25, 35, 0.47], [35, 45, 0.55], [45, 55, 0.57], [55, 65, 0.60], [65, 75, 0.62], [75, 128, 0.69]]
+generation_gap = 25.4
 window = { weekday = [16, 21], weekend = [12, 21] }
 duration_mean = 1.51
 duration_shape = 3
@@ -621,6 +707,28 @@ end_hours_later = 6.0
 [lunch_probability]
 university = 0.5
 worker = 0.3
+
+# How small children are looked after while their guardian works.
+[childcare]
+# Assumption: children of preschool age (under 6, before compulsory school) are never left at home
+#   without an adult; no age is set by law. Older pupils may be at home alone for a while after
+#   school, as the 42 % of pupils of grades 1-5 who do not attend the after-school club show.
+alone_from = 6
+# Source: a full-day kindergarten is open more than 6.5 and at most 12 hours a day (decree 14/2005
+#   Coll., section 1(3)). Assumption: it opens at 6, the earliest opening of the kindergartens
+#   whose rules were read; no national statistic of opening hours exists. A child is brought before
+#   the guardian leaves for work and fetched when the guardian is back, within these hours.
+kindergarten_hours = [6, 18]
+# Source: 332,286 of the 573,442 pupils of grades 1-5 attended an after-school club (skolni
+#   druzina) in 2018/19: Czech School Inspectorate, annual report 2018/19, table 95
+#   (https://csicr.cz/html/2019/Vyrocni_zprava_CSI_2018_2019/resources/_pdfs_/b545d707f9c9997ce6a1ddeee3a83119_171.pdf),
+#   and CZSO table 2.2.1 of basic schools, 57.9 %. It is the share of the accompanied pupils
+#   (under `accompanied_under`) who stay at school until the guardian is back.
+club_share = 0.579
+# Assumption: the clubs' hours are set by each school (decree 74/2005 Coll., section 10(8)); the
+#   rules of individual schools that were read open the morning club at about 6 to 7 and close at
+#   15:30 to 17:30, so 6 to 17 is used. No national statistic exists.
+club_hours = [6, 17]
 
 # Source: the Labour Code (262/2006 Coll., section 88) gives a break for food and rest of at least
 #   30 minutes after six hours of work; 0.75 h (45 minutes) is the middle of the usual 30-60.

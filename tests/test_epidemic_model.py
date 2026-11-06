@@ -12,6 +12,8 @@ from config_factory import (
     make_model,
 )
 
+from epidemic_sandbox.population import RESIDENT
+
 pytestmark = pytest.mark.usefixtures("synthetic_in_registry")
 
 SURE = {"transmission": 1.0, "infectious_days": 60.0}
@@ -38,7 +40,8 @@ def arranged_model(
 ):
     """Everybody at home on a grid too sparse for contacts; `positions` moves some people.
 
-    Homes are moved too, so nobody walks away during the night hours the tests run in.
+    Homes are moved too, so nobody walks away during the night hours the tests run in. Everybody
+    stands in one open space, one venue, so that only the distances decide who is in contact.
     """
     model = make_model(diseases, interactions, population=100, arena_size=500, **world)
     for index in range(model.population):
@@ -47,6 +50,7 @@ def arranged_model(
         model.x[index], model.y[index] = x, y
     model.town.home_x[:], model.town.home_y[:] = model.x, model.y
     model._target_x[:], model._target_y[:] = model.x, model.y
+    model._venues = lambda home, work: np.where(model._inside, 0, -1)
     return model
 
 
@@ -119,8 +123,13 @@ def test_most_workers_are_at_work_at_midday_on_a_weekday():
     town = model.town
     run(model, 14)  # 14:00 on Monday
     works = np.isin(town.role, (4,)) & ~town.at_school
-    present = distances(model, town.work_x, town.work_y, works) < 1e-6
-    assert present.mean() > 0.7, "the rest are absent, at lunch, on the way or late"
+    # a worker moves about the workplace, so being there means being within its radius
+    present = distances(model, town.work_center_x, town.work_center_y, works) <= (
+        town.work_radius[works] + 1e-6
+    )
+    # absent: leave 8 %, sick leave 4.7 %, days off of weekend workers, looking after a child;
+    # not yet there: the late shift (10 %) and restaurant staff, who start in the afternoon
+    assert present.mean() > 0.6, "the rest are absent, at lunch, on the way or late"
     assert present.mean() < 0.99, "people do not all behave alike"
 
 
@@ -143,8 +152,11 @@ def test_everybody_who_is_done_for_the_day_is_home_at_night_whatever_the_time_re
     model = make_model(three_diseases(), steps_per_day=steps_per_day, arena_size=2000)
     run(model, math.ceil((24 + 4) * steps_per_day / 24) + 1)  # Tuesday morning
     idle = np.array([model.current_code(person) == 0 for person in range(model.population)])
-    assert idle.sum() > 20
-    assert distances(model, model.town.home_x, model.town.home_y, idle).max() < 1e-6
+    resident = model.town.role == RESIDENT  # they move about their home by day
+    assert (idle & ~resident).sum() > 20
+    assert distances(model, model.town.home_x, model.town.home_y, idle & ~resident).max() < 1e-6
+    inside = distances(model, model.town.home_center_x, model.town.home_center_y, resident)
+    assert (inside <= model.town.home_radius[resident] + 1e-6).all()
 
 
 def test_only_a_few_go_to_work_at_the_weekend_and_nobody_to_school():
@@ -243,14 +255,14 @@ def test_infection_spreads_only_within_contact_distance():
     make_infectious(model, 0, "a")
     model.step()
     assert state_of(model, 1, "a") == "infectious"
-    assert model.state_counts()["a"] == [98, 2, 0, 0]
+    assert model.state_counts()["a"] == [98, 2, 0, 0, 0]  # dying and dead are the last two
 
 
 def test_far_people_are_not_infected():
     model = arranged_model({"a": disease_definition("plain", 0, **SURE)}, {})
     make_infectious(model, 0, "a")
     model.step()
-    assert model.state_counts()["a"] == [99, 1, 0, 0]
+    assert model.state_counts()["a"] == [99, 1, 0, 0, 0]
 
 
 def test_every_disease_has_its_own_contact_distance():
@@ -363,7 +375,7 @@ def test_an_epidemic_with_fatality_kills_the_expected_share():
     }
     model = run(make_model(diseases, population=1500, arena_size=2000), 24 * 20)
     counts = model.state_counts()["a"]
-    assert counts[3] / 300 == pytest.approx(0.3, abs=0.08)
+    assert counts[model.diseases["a"].dead_index] / 300 == pytest.approx(0.3, abs=0.08)
     assert counts[1] == 0, "everybody has either recovered or died"
 
 

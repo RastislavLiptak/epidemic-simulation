@@ -1,0 +1,113 @@
+# Strep throat, group A streptococcal pharyngitis (SEIS): infection is by close contact and leaves no
+# lasting protection (repeated episodes are usual; the antibodies are type-specific), so people
+# become susceptible again. What keeps it in a population is a reservoir the model does not have:
+# healthy carriers (8-16 % of children, 2 % of adults, Danchin et al. 2007, Pediatrics 120:950), who
+# carry one type for 10.8 weeks on average (Martin et al. 2004) and rarely pass it on, and the
+# people around the town. Pharyngitis from that reservoir comes as infections from outside (below);
+# the model spreads it on from the ill. Not in the model: seasons and treatment as such.
+# Tags: Source = a published number, Derived = computed from sources, Fitted = tuned in the model to a
+# published target (the targets are in [targets] below; `python -m epidemic_sandbox.calibrate
+# strep_throat` measures them), Estimate = no number found, so a reasoned guess (the reasoning is
+# given), Model = a modelling convention.
+model = "seis"
+# Model: a scenario choice, not a property of the disease.
+initial_infected = 30
+
+[parameters]
+# Fitted: the per-day chance of passing the bacteria to a member of the own household; the target is
+#   the household attack rate (targets.household_attack_rate). Measured (16 runs of 28 days, within
+#   households only, the first cases not counted again): 0.039 gives 11.2 %, 0.043 13.3 %.
+transmission = 0.042
+# Model: the 2 m of the setting's own description of droplet spread; no source measures a distance.
+contact_distance = 2.0
+# Model: as easily between people of different households as within one, per hour within contact
+#   distance; no measurement of the spread of strep throat outside families (such as a reproduction
+#   number) was found, and most of the infections come from the reservoir (below).
+community_factor = 1.0
+# Source: the incubation period of group A strep pharyngitis is about 2 to 5 days (CDC clinical
+#   guidance, page dated 18 November 2025), taken as 3.5 days, the middle. No source separates the
+#   latent period from the incubation period.
+incubation_days = 3.5
+# Estimate: nobody measured the infectious period. Untreated, communicability "gradually diminishes
+#   over a period of weeks" (AAP Red Book wording); 83 % are culture-negative within 24 hours of
+#   antibiotics (Snellman et al. 1993, Pediatrics 92:844); most children in the Australian cohort got
+#   antibiotics (Danchin et al. 2007), and antibiotics are given at about 57-60 % of visits for sore
+#   throat (Kronman 2014; Barnett and Linder 2014). Treated patients are infectious for the 2 to 3
+#   days of illness before the antibiotic works, untreated ones longer; 4 days.
+infectious_days = 4.0
+# Estimate: the variation of the stays is not published. 5.4 is the shape of the influenza
+#   incubation period (Lessler et al. 2009, dispersion 1.51, coefficient of variation 0.43); in
+#   volunteers given group A strep, 83 % of the diagnoses fell within 36 to 72 hours (Osowicki et al.
+#   2021, Lancet Microbe), a spread the same size or smaller.
+duration_shape = 5.4
+# Not found: deaths from streptococcal pharyngitis itself were not measured; it is practically never
+#   a cause of death, and deaths of rheumatic heart disease in Europe are of a chronic disease, not
+#   of a current infection (Ou et al. 2022, Arthritis Res Ther). Left at 0. (Deaths of invasive group
+#   A strep disease, mostly of skin and blood infections, are another disease.)
+fatality = 0.0
+# Derived: every infection in the model is a pharyngitis with symptoms; people with a confirmed
+#   respiratory infection took time off work, education or childcare in 40 % of PCR-confirmed
+#   episodes of influenza A (Fragaszy et al. 2018, Influenza Other Respir Viruses; children 56 %),
+#   the nearest measurement found; CDC advises staying home until the fever is gone and 12-24 hours
+#   after the first antibiotic dose.
+stay_home = 0.40
+# Estimate: of those who still went out, a third skipped leisure (Van Kerckhove et al. 2013, Am J
+#   Epidemiol: contacts at leisure 0.06 and at work or school 0.09 of the usual; 1 - 0.06 / 0.09).
+limit_outings = 0.33
+# Model: the healthy carriers (see the top) are left out of the course in the town: as a share of
+#   the infections without symptoms that lasts their 10.8 weeks, they made the pharyngitis of
+#   household members 1.9-2.5 % against the 13 % measured (targets.household_attack_rate), and no
+#   source tells which infections in a household become carriage. Their part comes as infections from
+#   outside (below).
+asymptomatic_share = 0.0
+# Fitted: infections with pharyngitis per year of a child of 3 to 15 years that come from the
+#   reservoir of carriers and from outside the town (other ages: the age effect below); the target
+#   is the rate of pharyngitis of school children (targets.case_incidence_5_12). Measured (8 runs of
+#   300 days, 30,000 people, the first 100 left out): 0.076 with the age effect below gives 10.2 per
+#   100 child-years and 4.2 per 100 adults of 30-49. Without them strep throat dies out in the town
+#   within weeks: its spread from the ill alone does not keep it (the town's reproduction number is
+#   0.36; 88 % of the infections in the town are within households).
+outside_infections = 0.076
+# Not found: a measured variation of susceptibility between people. Left at 0: any other number
+#   would be an invention.
+susceptibility_cv = 0.0
+# Model: no dispersion of the number of people one case infects is published for strep throat; none
+#   is added to the variation the town itself makes.
+infectiousness_dispersion = 0.0
+
+[age_effects]
+# Fitted: how often people of each age are infected from the reservoir, relative to children of 3
+#   to 15 years. Group A strep pharyngitis "is most common among children 5 through 15 years of
+#   age" and "rare in children younger than 3 years of age" (CDC clinical guidance); adults had 5
+#   culture-positive and 3 serologically confirmed episodes per 100 person-years against 13 and 8
+#   of children 5-12 (Danchin et al. 2007), so the adults' factor is fitted to their rate
+#   (targets.case_incidence_30_49): measured (as above), 0.3 gives 3.5 and 0.4 4.3 per 100. Estimate:
+#   children under 3 as adults (no rate found, "rare"); older adults as the parents (no rate found).
+outside_infections = [[0, 3, 0.37], [3, 16, 1.0], [16, 120, 0.37]]
+
+# What the Fitted values were fitted to, and what the disease is checked against (not fitted).
+[targets.household_attack_rate]
+# 13 % (95 % CI 9-18) of the family members at risk got a secondary case of culture-positive
+# pharyngitis from a first case, 202 Australian families; the IDSA guideline says up to 25 % if the
+# first case has symptoms (Shulman et al. 2012).
+value = 0.13
+low = 0.09
+high = 0.18
+source = "Danchin et al. 2007, Pediatrics 120:950"
+[targets.case_incidence_5_12]
+# 13 swab-positive episodes of group A strep pharyngitis per 100 child-years at 5-12 years, 8 when
+# also confirmed by serology (Melbourne families). A positive swab also counts carriers whose sore
+# throat had another cause, serology misses some infections, so the true rate lies between them:
+# the middle, and the two as the range.
+value = 0.105
+low = 0.08
+high = 0.13
+source = "Danchin et al. 2007, Pediatrics 120:950"
+[targets.case_incidence_30_49]
+# Adults of the families (the parents of children of 3 to 12 years): 5 culture-positive and 3
+# serologically confirmed episodes of group A strep pharyngitis per 100 person-years; the middle,
+# and the two as the range, as for the children.
+value = 0.04
+low = 0.03
+high = 0.05
+source = "Danchin et al. 2007, Pediatrics 120:950"

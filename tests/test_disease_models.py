@@ -295,7 +295,7 @@ def test_immunity_wanes_after_the_configured_time():
     )
     disease_state, rng = new_state(model, population=500, cases=np.arange(500))
     finish_infection(model, disease_state, rng, days=15)
-    assert (disease_state.state == model.dead_index - 1).all(), "recovered and still immune"
+    assert (disease_state.state == model._index[RECOVERED]).all(), "recovered and still immune"
     finish_infection(model, disease_state, rng, days=40)
     assert not disease_state.state.any(), "everybody is susceptible again"
 
@@ -311,7 +311,7 @@ def test_partial_protection_reduces_the_hazard_of_immune_people():
     model = PlainModel(
         ONE_DAY, infectious_days=1.0, immunity_protection=0.75, transmission=0.5, **UNIFORM
     )
-    immune = np.full(200_000, model.dead_index - 1, np.int8)
+    immune = np.full(200_000, model._index[RECOVERED], np.int8)
     disease_state, rng = new_state(model, population=200_000)
     disease_state.state[:] = immune
     advance(model, disease_state, rng, exposure=1)
@@ -322,7 +322,7 @@ def test_partial_protection_reduces_the_hazard_of_immune_people():
 def test_complete_protection_means_no_reinfection():
     model = PlainModel(ONE_DAY, **SURE, immunity_protection=1.0)
     disease_state, rng = new_state(model, population=100)
-    disease_state.state[:] = model.dead_index - 1
+    disease_state.state[:] = model._index[RECOVERED]
     advance(model, disease_state, rng, exposure=10)
     assert disease_state.cumulative_infections == 0
 

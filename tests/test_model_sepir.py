@@ -1,10 +1,14 @@
 """SEPIR against its definition: the compartments, the textbook ODE, presymptomatic spread.
 
-The model is S -> E -> P -> I -> R (or dead) with the relative infectiousness w of P. In a
-well-mixed population with exponential stays its mean course is the ODE
-    S' = -b S (w P + I) / N,  E' = -S' - E / d_E,  P' = E / d_E - P / d_P,  I' = P / d_P - I / d_I
-with b = -ln(1 - transmission) * contacts, so that R0 = b (w d_P + d_I) and the share of
-transmission before symptoms is theta = w d_P / (w d_P + d_I) (Fraser et al. 2004, PNAS).
+The model is S -> E -> P -> I -> W -> R (or dead) with the relative infectiousness w of P and v
+of W, the waning end of the symptomatic period. In a well-mixed population with exponential stays
+its mean course is the ODE
+    S' = -b S (w P + I + v W) / N,  E' = -S' - E / d_E,  P' = E / d_E - P / d_P,
+    I' = P / d_P - I / d_I,  W' = I / d_I - W / d_W
+with b = -ln(1 - transmission) * contacts, so that R0 = b (w d_P + d_I + v d_W) and the share of
+transmission before symptoms is theta = w d_P / (w d_P + d_I + v d_W) (Fraser et al. 2004, PNAS).
+Where a test compares with the system without W, W spreads nothing (v = 0): it only delays the
+recovery and leaves S, E, P and I as they are.
 A stay measured in steps is the continuous stay rounded up, which adds half a step to its mean;
 the predictions below use these means (a bias the simulation has by construction).
 """
@@ -14,24 +18,46 @@ from functools import cache
 
 import numpy as np
 import pytest
-from cited_numbers import check_default_numbers, check_demo_numbers
-from config_factory import LIBRARY
+from cited_numbers import check_default_numbers, check_disease_numbers
+from config_factory import LIBRARY, disease_of
 from disease_helpers import ONE_DAY, SURE, UNIFORM, advance, new_state, place, state_names
 from mean_field import final_size, integrate, run_well_mixed
 from test_epidemic_model import arranged_model
 
 from epidemic_sandbox.disease_models.disease_model_abstract import (
+    ASYMPTOMATIC,
     DEAD,
+    DYING,
     EXPOSED,
     INFECTIOUS,
     RECOVERED,
     SUSCEPTIBLE,
 )
-from epidemic_sandbox.disease_models.sepir import PRESYMPTOMATIC, SepirModel
+from epidemic_sandbox.disease_models.sepir import PRESYMPTOMATIC, WANING, SepirModel
 
 IDENTICAL = {"susceptibility_cv": 0.0, "infectiousness_dispersion": 0.0, "immunity_days": 36500}
-ORDER = [SUSCEPTIBLE, EXPOSED, PRESYMPTOMATIC, INFECTIOUS, RECOVERED, DEAD]
-DAYS = {"latent_days": 3.0, "presymptomatic_days": 2.5, "infectious_days": 3.0}
+ORDER = [
+    SUSCEPTIBLE,
+    EXPOSED,
+    PRESYMPTOMATIC,
+    INFECTIOUS,
+    WANING,
+    ASYMPTOMATIC,
+    RECOVERED,
+    DYING,
+    DEAD,
+]
+DAYS = {
+    "latent_days": 4.1,
+    "presymptomatic_days": 1.4,
+    "infectious_days": 2.0,
+    "waning_days": 6.0,
+    "waning_infectiousness": 0.08,
+}
+D_P, D_I = DAYS["presymptomatic_days"], DAYS["infectious_days"]
+D_W, V = DAYS["waning_days"], DAYS["waning_infectiousness"]
+SYMPTOMATIC = (INFECTIOUS, WANING)
+NO_WANING = {"waning_days": 0.1, "waning_infectiousness": 0.0}
 
 
 class IsolatingSepirModel(SepirModel):
@@ -62,6 +88,11 @@ def theta(w: float, d_presymptomatic: float, d_symptomatic: float) -> float:
     return w * d_presymptomatic / (w * d_presymptomatic + d_symptomatic)
 
 
+def weighted_days(w: float = 1.0) -> float:
+    """The infectiousness-weighted infectious time of the course of DAYS."""
+    return w * D_P + D_I + V * D_W
+
+
 def growth_rate(b, w, d_latent, d_presymptomatic, d_symptomatic, shape) -> float:
     """The root r > 0 of the Euler-Lotka equation for gamma distributed stays of this shape.
 
@@ -86,10 +117,18 @@ def growth_rate(b, w, d_latent, d_presymptomatic, d_symptomatic, shape) -> float
 # --- the declaration -----------------------------------------------------------------------------
 
 
-def test_the_states_are_in_the_order_of_the_course_and_only_p_and_i_spread():
+def test_the_states_are_in_the_order_of_the_course_and_only_p_i_w_and_a_spread():
     assert list(SepirModel.STATE_COLORS) == ORDER
-    assert {PRESYMPTOMATIC, INFECTIOUS} == SepirModel.INFECTIOUS_STATES
-    assert SepirModel.course_states() == {EXPOSED, PRESYMPTOMATIC, INFECTIOUS, RECOVERED}
+    assert {PRESYMPTOMATIC, INFECTIOUS, WANING, ASYMPTOMATIC} == SepirModel.INFECTIOUS_STATES
+    assert set(SYMPTOMATIC) == SepirModel.SYMPTOMATIC_STATES
+    assert SepirModel.course_states() == {
+        EXPOSED,
+        PRESYMPTOMATIC,
+        INFECTIOUS,
+        WANING,
+        ASYMPTOMATIC,
+        RECOVERED,
+    }
     assert SepirModel.INFECTION_ENTRY_STATE == EXPOSED
     assert SepirModel.INITIAL_CASE_STATE == PRESYMPTOMATIC, "the seeds spread for the whole course"
     assert not SepirModel.CONFINED_STATES and not SepirModel.RATES
@@ -108,9 +147,9 @@ def test_the_incubation_period_is_the_latent_plus_the_presymptomatic_period():
     assert not np.isnan(onset).any()
     # two stays, each rounded up to whole steps (mean + step / 2); the onset is seen one step
     # after the entry, which the half steps do not cover, hence the third half step
-    mean = DAYS["latent_days"] + DAYS["presymptomatic_days"] + 3 * step_days / 2
+    mean = DAYS["latent_days"] + D_P + 3 * step_days / 2
     assert onset.mean() == pytest.approx(mean, abs=5 * onset.std() / math.sqrt(population))
-    variance = (DAYS["latent_days"] ** 2 + DAYS["presymptomatic_days"] ** 2) / 4.0
+    variance = (DAYS["latent_days"] ** 2 + D_P**2) / 4.0
     assert onset.std() == pytest.approx(math.sqrt(variance), rel=0.03)
 
 
@@ -124,7 +163,7 @@ def test_a_person_goes_through_every_state_in_order_and_recovers():
         current = state_names(model, disease_state)[0]
         if current != visited[-1]:
             visited.append(current)
-    assert visited == [EXPOSED, PRESYMPTOMATIC, INFECTIOUS, RECOVERED]
+    assert visited == [EXPOSED, PRESYMPTOMATIC, INFECTIOUS, WANING, RECOVERED]
 
 
 def test_a_reinfection_starts_again_in_the_latent_state():
@@ -136,9 +175,13 @@ def test_a_reinfection_starts_again_in_the_latent_state():
 
 
 def test_the_relative_infectiousness_of_each_state():
-    model = SepirModel(ONE_DAY, presymptomatic_infectiousness=0.4)
+    model = SepirModel(ONE_DAY, presymptomatic_infectiousness=0.4, waning_infectiousness=0.3)
+    p = model.parameters
+    # an infection without symptoms spreads the given share of what one with symptoms does
+    with_symptoms = 0.4 * p["presymptomatic_days"] + p["infectious_days"] + 0.3 * p["waning_days"]
+    without = p["asymptomatic_infectiousness"] * with_symptoms / p["asymptomatic_days"]
     assert [model.state_infectiousness(state) for state in ORDER] == pytest.approx(
-        [0, 0, 0.4, 1, 0, 0]
+        [0, 0, 0.4, 1, 0.3, without, 0, 0, 0]
     )
     assert SepirModel(ONE_DAY, presymptomatic_infectiousness=2.0).state_infectiousness(
         PRESYMPTOMATIC
@@ -152,12 +195,24 @@ def test_only_the_symptomatic_react_to_their_illness_and_the_presymptomatic_carr
     for _ in range(30):
         names = np.array(state_names(model, disease_state))
         seen |= set(names)
-        for state in (EXPOSED, PRESYMPTOMATIC, INFECTIOUS, RECOVERED):
+        for state in (EXPOSED, PRESYMPTOMATIC, INFECTIOUS, WANING, RECOVERED):
             here = names == state
-            assert (disease_state.stays_home[here] == (state == INFECTIOUS)).all(), state
-            assert (disease_state.limits_outings[here] == (state == INFECTIOUS)).all(), state
+            assert (disease_state.stays_home[here] == (state in SYMPTOMATIC)).all(), state
+            assert (disease_state.limits_outings[here] == (state in SYMPTOMATIC)).all(), state
         advance(model, disease_state, rng)
-    assert {PRESYMPTOMATIC, INFECTIOUS, RECOVERED} <= seen, "every state was checked"
+    assert {PRESYMPTOMATIC, INFECTIOUS, WANING, RECOVERED} <= seen, "every state was checked"
+
+
+def test_the_waning_period_keeps_the_decision_to_stay_home_taken_at_the_onset():
+    model = SepirModel(ONE_DAY, stay_home=0.5, duration_shape=50.0, **DAYS)
+    disease_state, rng = new_state(model, population=20_000)
+    place(model, disease_state, rng, np.arange(20_000), INFECTIOUS)
+    decided = disease_state.stays_home.copy()
+    for _ in range(3):
+        advance(model, disease_state, rng)
+    waning = disease_state.state == ORDER.index(WANING)
+    assert waning.mean() > 0.99
+    assert (disease_state.stays_home[waning] == decided[waning]).all()
 
 
 def test_the_decision_to_stay_at_home_is_drawn_when_the_symptoms_begin():
@@ -215,14 +270,16 @@ def test_people_die_only_at_the_end_of_the_symptomatic_period_of_a_whole_illness
     visited, disease_state = cohort_visits(model, 20_000, 120.0)
     dead = disease_state.state == ORDER.index(DEAD)
     assert dead.mean() == pytest.approx(0.25, abs=4 * math.sqrt(0.25 * 0.75 / 20_000))
-    for state in (EXPOSED, PRESYMPTOMATIC, INFECTIOUS):
+    for state in (EXPOSED, PRESYMPTOMATIC, INFECTIOUS, WANING):
         assert visited[ORDER.index(state)][dead].all(), f"the dead had been {state}"
     assert not visited[ORDER.index(RECOVERED)][dead].any()
     assert disease_state.deaths == dead.sum()
 
 
 def test_nobody_dies_before_the_symptomatic_stay_is_over():
-    model = SepirModel(ONE_DAY, fatality=1.0, duration_shape=50.0, **DAYS)
+    # long enough for the first day to pass with no deaths
+    days = {**DAYS, "infectious_days": 2.0, "waning_days": 1.0}
+    model = SepirModel(ONE_DAY, fatality=1.0, duration_shape=50.0, **days)
     disease_state, rng = new_state(model, population=300)
     place(model, disease_state, rng, np.arange(300), INFECTIOUS)
     advance(model, disease_state, rng)
@@ -248,6 +305,17 @@ def test_fatality_and_susceptibility_depend_on_age():
     assert infected == pytest.approx(chance, abs=4 * math.sqrt(0.14 / 20_000))
 
 
+def test_people_who_start_immune_count_as_infected_before_when_they_are_reinfected():
+    model = SepirModel(
+        ONE_DAY, initial_immune=0.5, immunity_protection=0.0, severe_protection=0.8, **UNIFORM
+    )
+    disease_state, rng = new_state(model, population=20_000)
+    immune = disease_state.state == ORDER.index(RECOVERED)
+    assert immune.mean() == pytest.approx(0.5, abs=0.02)
+    model.apply_infections(disease_state, np.arange(20_000), rng)
+    assert (disease_state.reinfected == immune).all(), "severe_protection applies to them"
+
+
 def test_an_age_effect_on_branching_is_rejected_because_nobody_branches():
     with pytest.raises(ValueError, match="does nothing"):
         SepirModel(ONE_DAY, age_effects={"branching": [[0, 15, 2.0]]})
@@ -259,23 +327,36 @@ def test_an_age_effect_on_branching_is_rejected_because_nobody_branches():
 @pytest.mark.parametrize("w", [0.0, 0.5, 1.0, 2.0])
 def test_the_infectious_time_weighs_the_presymptomatic_period_by_its_infectiousness(w):
     model = SepirModel(ONE_DAY, presymptomatic_infectiousness=w, transmission=0.4, **DAYS)
-    assert model.infectious_days() == pytest.approx(w * 2.5 + 3.0)
-    assert model.mean_field_r0(2.0) == pytest.approx(hazard(0.4) * 2.0 * (w * 2.5 + 3.0))
+    assert model.infectious_days() == pytest.approx(weighted_days(w))
+    assert model.mean_field_r0(2.0) == pytest.approx(hazard(0.4) * 2.0 * weighted_days(w))
 
 
 @pytest.mark.parametrize("shape", [1.0, 4.0, 20.0])
 def test_a_pair_next_to_each_other_all_along_infects_with_the_chance_the_gamma_stays_give(shape):
     w, transmission = 0.7, 0.35
     model = SepirModel(
-        ONE_DAY, duration_shape=shape, presymptomatic_infectiousness=w, transmission=transmission
+        ONE_DAY,
+        duration_shape=shape,
+        presymptomatic_infectiousness=w,
+        transmission=transmission,
+        infectiousness_dispersion=0.0,
+        **DAYS,
     )
     h = hazard(transmission)
-    # E[exp(-h (w X_P + X_I))] for independent gamma stays of the given means and shape
-    survival = (1 + h * w * 2.5 / shape) ** -shape * (1 + h * 3.0 / shape) ** -shape
-    # the weight w is stored as a float32
+    # E[exp(-h (w X_P + X_I + v X_W))] for independent gamma stays of the given means and shape
+    survival = (
+        (1 + h * w * D_P / shape) ** -shape
+        * (1 + h * D_I / shape) ** -shape
+        * (1 + h * V * D_W / shape) ** -shape
+    )
+    # the weights are stored as float32
     assert model.pair_transmission_probability() == pytest.approx(1 - survival, abs=1e-6)
     rng = np.random.default_rng(0)
-    spread = w * rng.gamma(shape, 2.5 / shape, 400_000) + rng.gamma(shape, 3.0 / shape, 400_000)
+    spread = (
+        w * rng.gamma(shape, D_P / shape, 400_000)
+        + rng.gamma(shape, D_I / shape, 400_000)
+        + V * rng.gamma(shape, D_W / shape, 400_000)
+    )
     assert model.pair_transmission_probability() == pytest.approx(
         np.mean(1 - np.exp(-h * spread)), abs=0.003
     )
@@ -291,29 +372,30 @@ def test_the_share_of_infectiousness_before_symptoms_is_theta_of_fraser_et_al():
     after = np.zeros(population)
     for _ in range(round(40 / step_days)):
         weight = model.infectious_weight(disease_state) * step_days
-        symptomatic = disease_state.state == ORDER.index(INFECTIOUS)
+        symptomatic = np.isin(disease_state.state, [ORDER.index(state) for state in SYMPTOMATIC])
         before += np.where(symptomatic, 0.0, weight)
         after += np.where(symptomatic, weight, 0.0)
         advance(model, disease_state, rng)
-    expected = theta(w, 2.5 + step_days / 2, 3.0 + step_days / 2)
+    half = step_days / 2
+    expected = theta(w, D_P + half, D_I + half + V * (D_W + half))
     # each stay is rounded up to whole steps, which the expected values include
     share = before.sum() / (before.sum() + after.sum())
     error = 5 * (before / (before + after)).std() / math.sqrt(population)
     assert share == pytest.approx(expected, abs=error + 0.002)
-    assert model.infectious_days() == pytest.approx(w * 2.5 + 3.0)
+    assert model.infectious_days() == pytest.approx(weighted_days(w))
 
 
-def test_the_demo_disease_has_the_incubation_and_presymptomatic_share_its_comments_cite():
-    definition = LIBRARY.catalog["demo_sepir"]
+def test_the_disease_has_the_incubation_period_its_comments_cite():
+    definition = LIBRARY.catalog[disease_of("sepir")]
     parameters = definition.parameters
     assert definition.model == "sepir"
-    assert parameters["latent_days"] + parameters["presymptomatic_days"] == 5.5
-    assert theta(
-        parameters["presymptomatic_infectiousness"],
-        parameters["presymptomatic_days"],
-        parameters["infectious_days"],
-    ) == pytest.approx(0.45, abs=0.01)
-    assert SepirModel(ONE_DAY, **parameters).mean_field_r0(2.0) > 1
+    assert parameters["latent_days"] + parameters["presymptomatic_days"] == pytest.approx(5.5)
+    # the share of transmission before the symptoms is fitted in the town, where a growing
+    # epidemic and the people who stay at home raise it above the theta of the course alone
+    # (python -m epidemic_sandbox.calibrate covid19); transmission comes from the secondary
+    # attack rate in households, so whether R0 exceeds 1 is what the contacts of the town make of
+    # it, and the town is a setting
+    assert SepirModel(ONE_DAY, **parameters).mean_field_r0(2.0) > 0
 
 
 # --- the well-mixed epidemic against the textbook ODE --------------------------------------------
@@ -378,6 +460,7 @@ def run_tallied(shape, seed, days=60.0, w=W, model_class=SepirModel, **parameter
         presymptomatic_infectiousness=w,
         transmission=TRANSMISSION,
         **MEANS,
+        **NO_WANING,
         **IDENTICAL,
         **parameters,
     )
@@ -490,7 +573,13 @@ COARSE_RUNS = 6
 
 def ever_infected(model_class=SepirModel, runs=COARSE_RUNS, **parameters) -> float:
     """Mean share ever infected (left the susceptible state) over well-mixed runs of 100 days."""
-    parameters = {"latent_days": 2.0, "duration_shape": 4.0, **IDENTICAL, **parameters}
+    parameters = {
+        "latent_days": 2.0,
+        "duration_shape": 4.0,
+        **NO_WANING,
+        **IDENTICAL,
+        **parameters,
+    }
     results = []
     for seed in range(runs):
         _, counts = run_well_mixed(
@@ -553,19 +642,23 @@ def test_without_presymptomatic_infectiousness_isolating_the_symptomatic_stops_e
 
 
 @pytest.mark.parametrize(
-    ("w", "d_presymptomatic", "d_symptomatic"), [(1.5, 2.0, 3.0), (0.5, 4.0, 4.0), (1.0, 1.0, 2.0)]
+    ("w", "d_presymptomatic", "d_symptomatic", "runs", "tolerance"),
+    [(1.5, 2.0, 3.0, 4, 0.005), (0.5, 4.0, 4.0, 4, 0.005), (1.0, 1.0, 2.0, 16, 0.012)],
 )
 def test_the_final_size_follows_r0_whatever_the_split_between_the_periods(
-    w, d_presymptomatic, d_symptomatic
+    w, d_presymptomatic, d_symptomatic, runs, tolerance
 ):
-    """The first two have the same R0 = b (w d_P + d_I) with theta 0.5 and 0.33."""
+    """The first two have the same R0 = b (w d_P + d_I) with theta 0.5 and 0.33; the final size
+    varies by 0.002 between runs (16 runs). The third has R0 1.6, nearer the threshold, where it
+    varies by 0.011 (16 runs): 4 sigma of the mean of 16 runs is 0.011."""
     sim = ever_infected(
-        runs=4,
+        runs=runs,
         presymptomatic_infectiousness=w,
         presymptomatic_days=d_presymptomatic,
         infectious_days=d_symptomatic,
     )
-    assert sim == pytest.approx(predicted_final_size(w, d_presymptomatic, d_symptomatic), abs=0.005)
+    expected = predicted_final_size(w, d_presymptomatic, d_symptomatic)
+    assert sim == pytest.approx(expected, abs=tolerance)
 
 
 def test_a_longer_latent_period_slows_the_epidemic_but_not_its_size():
@@ -580,6 +673,21 @@ def test_a_longer_latent_period_slows_the_epidemic_but_not_its_size():
     assert slow < fast
 
 
+def test_the_waning_period_adds_its_weighted_days_to_r0_and_the_final_size_follows():
+    """R0 = b (w d_P + d_I + v d_W): 2 days at half the infectiousness add as much as 1 day at the
+    full one. The sd of the final size is 0.002 (16 runs), so 0.005 is 4 sigma of 4 runs."""
+    waning = ever_infected(
+        runs=4,
+        presymptomatic_infectiousness=W,
+        presymptomatic_days=2.0,
+        infectious_days=2.0,
+        waning_days=2.0,
+        waning_infectiousness=0.5,
+    )
+    longer = predicted_final_size(W, 2.0, 2.0 + COARSE / 2 + 0.5 * (2.0 + COARSE / 2) - COARSE / 2)
+    assert waning == pytest.approx(longer, abs=0.005)
+
+
 MEANS_WITHOUT_LATENT = {
     "presymptomatic_days": 2.0,
     "infectious_days": 3.0,
@@ -587,24 +695,77 @@ MEANS_WITHOUT_LATENT = {
 }
 
 
-# (values both the demo disease and the model default have, demo-only values, age effects)
+# (values both the disease and the model default have, the disease's own values, age effects)
 SOURCED = (
-    {"latent_days": 3.0, "presymptomatic_days": 2.5, "infectious_days": 3.0},
-    {"fatality": 0.0116, "transmission": 0.4},  # Levin et al. 2020
+    {  # Ferretti et al. 2020, Xin et al. 2022, Wolfel et al. 2020, Buitrago-Garcia et al. 2022
+        "latent_days": 4.1,
+        "presymptomatic_days": 1.4,
+        "infectious_days": 1.75,
+        "waning_days": 6.25,
+        "waning_infectiousness": 0.08,
+        "presymptomatic_infectiousness": 1.0,
+    },
+    {
+        "fatality": 0.01455,  # Levin et al. 2020
+        "transmission": 0.085,
+        "community_factor": 38.0,
+        "duration_shape": 4.3,
+        "death_delay_days": 9.8,  # Verity et al. 2020
+        "immunity_protection": 0.805,  # Hansen et al. 2021
+        "immunity_days": 520,
+        "severe_protection": 0.902,  # COVID-19 Forecasting Team 2023
+        "stay_home": 0.40,  # Fragaszy et al. 2018
+        "limit_outings": 0.33,
+        "infectiousness_dispersion": 0.55,
+        "asymptomatic_share": 0.192,  # Buitrago-Garcia et al. 2022, Sah et al. 2021
+        "asymptomatic_infectiousness": 0.32,  # Buitrago-Garcia et al. 2022
+        "asymptomatic_days": 8.0,  # Byrne et al. 2020
+    },
     {
         "fatality": [
-            [0, 20, 0.002],
-            [20, 50, 0.05],
-            [50, 65, 0.5],
-            [65, 80, 2.7],
-            [80, 120, 10.8],
-        ]
+            [0, 10, 0.001],
+            [10, 20, 0.002],
+            [20, 30, 0.008],
+            [30, 40, 0.027],
+            [40, 50, 0.086],
+            [50, 60, 0.293],
+            [60, 70, 0.996],
+            [70, 80, 3.056],
+            [80, 85, 7.718],
+            [85, 120, 19.444],
+        ],
+        "susceptibility": [[0, 20, 0.58]],  # Viner et al. 2021
+        "asymptomatic": [[0, 19, 1.455], [19, 60, 1.0], [60, 120, 0.614]],  # Sah et al. 2021
     },
+)
+MEASLES = (
+    {},
+    {
+        "latent_days": 10.0,
+        "presymptomatic_days": 4.0,
+        "infectious_days": 2.0,
+        "waning_days": 2.0,
+        "waning_infectiousness": 0.5,
+        "transmission": 0.23,
+        "contact_distance": 10.0,
+        "duration_shape": 23.0,
+        "fatality": 0.000726,
+        "death_delay_days": 8.0,
+        "stay_home": 0.91,
+        "limit_outings": 0.33,
+        "initial_immune": 0.93,
+        "asymptomatic_share": 0.0,
+    },
+    {},
 )
 
 
-def test_the_demo_disease_has_the_numbers_its_comment_cites():
-    check_demo_numbers("sepir", *SOURCED)
+def test_measles_has_the_numbers_its_comment_cites():
+    check_disease_numbers("sepir", *MEASLES, name="measles")
+
+
+def test_the_disease_has_the_numbers_its_comment_cites():
+    check_disease_numbers("sepir", *SOURCED)
 
 
 def test_the_model_defaults_are_the_cited_numbers():

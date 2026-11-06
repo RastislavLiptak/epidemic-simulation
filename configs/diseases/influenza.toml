@@ -1,0 +1,180 @@
+# Seasonal influenza (SVEPIR) in a town where part of the people is vaccinated: after a latent
+# period comes a short presymptomatic period, then the symptomatic one; a share of the infections
+# never has symptoms (they spread less, behave as usual and do not die of it). The vaccine is leaky
+# (vaccinated people can still be infected, at a lower hazard) and wears off. The virus is
+# influenza A(H1N1)pdm09 where a number depends on the subtype. Tags: Source = a published number,
+# Derived = computed from sources, Fitted = tuned in the model to a published target (the targets
+# are in [targets] below; `python -m epidemic_sandbox.calibrate influenza` measures them),
+# Estimate = no number found, so a reasoned guess (the reasoning is given), Model = a modelling
+# convention.
+model = "svepir"
+# Model: a scenario choice, not a property of the disease.
+initial_infected = 15
+enabled = true
+
+[parameters]
+# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
+#   the household attack rate (targets.household_attack_rate). Measured (16 runs, nobody
+#   vaccinated, with the infections without symptoms below): 0.17 gives 41.4 %, 0.18 45.0 %, 0.19
+#   46.6 %.
+transmission = 0.18
+# Model: the 2 m of the setting's own description of droplet spread; no source measures a distance.
+contact_distance = 2.0
+# Fitted: how much more easily the virus passes between people of different households than
+#   within one per hour within contact distance (household hours include the night); the target is
+#   the reproduction number of seasonal epidemics (targets.reproduction_number). Measured (16 runs in
+#   a town of 30,000, at the transmission above): 2.8 gives 1.33, 3.2 1.42, 3.6 1.56.
+community_factor = 2.6
+# Source: "On average, viral shedding was detected 1 day after inoculation" in volunteer challenge
+#   studies (Carrat et al. 2008, Am J Epidemiol 167:775); an inoculation, not a natural infection.
+latent_days = 1.0
+# Derived: the incubation period of influenza A has a median of 1.4 days and a dispersion of 1.51
+#   (Lessler et al. 2009, Lancet Infect Dis, log-normal fit), a mean of 1.4 x exp(ln(1.51)^2 / 2) =
+#   1.52 days; minus the latent period: 0.5 days in which a person spreads before the symptoms.
+presymptomatic_days = 0.5
+# Source: "Most viral shedding occurred during the first 2-3 days after illness onset" (Lau et al.
+#   2010, J Infect Dis 201:1509): the part of the symptomatic period at full infectiousness, 2.5 days.
+#   Check not used in a fit: with the waning part below, the generation interval and the share before
+#   symptoms are within their targets for 1.5 to 2.5 days and waning of 0.2 to 0.5 (16 runs each).
+infectious_days = 2.5
+# Derived: virus is shed for 4.80 days on average (95% CI 4.31-5.29; Carrat et al. 2008), of which
+#   0.5 before the symptoms (above), so the symptomatic period ends 4.3 days after the onset: 4.3 - 2.5
+#   = 1.8 days of waning infectiousness, in which a person is still ill.
+waning_days = 1.8
+# Estimate: infectivity grows with the viral load to the power 0.136 (seasonal H1N1, Tsang et al.
+#   2015, J Infect Dis 212:1420), so a viral load lower by 2 orders of magnitude at the end of
+#   shedding (an assumption about the fall after the first days, which no source gives in numbers)
+#   leaves 10^(-2 x 0.136) = 0.53 of the infectiousness: 0.5.
+waning_infectiousness = 0.5
+# Fitted: the relative infectiousness of the presymptomatic period; the target is the share of
+#   transmission before the onset of symptoms (targets.share_before_symptoms). Measured (16 runs,
+#   without the waning part): 0.4 gives 12 %, 0.6 18 %, 1 23-36 %; with it 0.4 gives 10-11 %.
+presymptomatic_infectiousness = 0.4
+# Source: 36 % (95% CrI 32-40) of the infections of A(H1N1)pdm09 in households in Hong Kong had no
+#   symptoms at all (Tsang et al. 2023, PNAS 120:e2304750120; infection by PCR or a fourfold rise
+#   of antibodies). They report 32 % for children and 40 % for adults, but not the age that
+#   divides them, so no age effect.
+asymptomatic_share = 0.36
+# Source: the infectiousness of infections without symptoms relative to those with symptoms, 0.57
+#   (95% CrI 0.11-1.54; Tsang et al. 2023). It includes what the ill do to protect their household
+#   (such as keeping to a bedroom), which the town does not model; the authors could not separate it.
+asymptomatic_infectiousness = 0.57
+# Derived: virus is shed for 4.80 days on average from 1 day after inoculation (Carrat et al. 2008,
+#   Am J Epidemiol 167:775), which the course with symptoms also takes (0.5 + 2.5 + 1.8 days). Shedding
+#   without symptoms is lower and falls faster (Ip et al. 2017, Clin Infect Dis), so this is
+#   an upper bound.
+asymptomatic_days = 4.8
+# Derived: the dispersion 1.51 of the incubation period of influenza A (Lessler et al. 2009), a
+#   coefficient of variation of 0.43, the gamma shape 1 / 0.43^2 = 5.4, for all stays.
+duration_shape = 5.4
+# Derived: deaths per symptomatic illness in ten US seasons 2010-11 to 2019-20 (CDC burden
+#   estimates, final per-season tables, https://archive.cdc.gov/www_cdc_gov/flu/about/burden/;
+#   all deaths divided by all illnesses of the seasons): 0.0073 % at 0-4 years, 0.0046 % at 5-17
+#   (the nine seasons with a child estimate), 0.0218 % at 18-49, 0.0648 % at 50-64 and 0.988 % at
+#   65 and older. Per infection: times the 64 % of infections with symptoms (see asymptomatic_share;
+#   66.9 % in volunteers, Carrat et al. 2008). The base is the age group 18-49, 0.000218 x 0.64 =
+#   0.00014; the age effects below are the other groups' rates divided by it. The model puts the
+#   deaths on the infections with symptoms, so the rate per illness is CDC's again. Limits: CDC's estimates are model-based multipliers of surveillance data; no European
+#   estimate by age was found.
+fatality = 0.00014
+# Derived: among fatal cases of influenza A(H1N1)pdm09 in California, "the median time from onset
+#   of symptoms to death was 12 days" (Louie et al. 2009, JAMA 302:1896). The onset is the start of
+#   the symptomatic period, at whose end (4.3 days after the onset) those who die of it are taken ill
+#   gravely, so the time from there to death is 12 - 4.3 = 7.7 days. A median used as a mean.
+death_delay_days = 7.7
+# Model: protection by infection with the same virus is complete for the length of an experiment
+#   (a season lasts weeks); the duration is not known.
+immunity_days = 36500
+immunity_protection = 1.0
+# Source: 40 % of PCR-confirmed episodes of influenza A in the community took time off work,
+#   education or childcare (Fragaszy et al. 2018, Influenza Other Respir Viruses, Flu Watch;
+#   episodes with symptoms). People without symptoms behave as usual.
+stay_home = 0.40
+# Estimate: of the ill who still went out, a third skipped leisure: people with influenza-like
+#   illness cut contacts at leisure to 0.06 and at work or school to 0.09 of the usual (Van
+#   Kerckhove et al. 2013, Am J Epidemiol, Table 1), so of those who go out only 0.06 / 0.09 = two
+#   thirds keep their leisure, and a third skip it. The paper gives ratios of contacts, not shares
+#   of people, so this is an interpretation.
+limit_outings = 0.33
+# Not found: a measured variation of susceptibility between people beyond the age effect below.
+susceptibility_cv = 0.0
+# Source: dispersion k = 0.94 (95% CI 0.59-1.72), "Dispersion parameter for individual variability
+#   in infectiousness" in households of the 1918 pandemic (Fraser et al. 2011, Am J Epidemiol
+#   174:505): the gamma shape of how infectious an infection is, the quantity of this parameter,
+#   estimated with the household contacts modelled apart. No estimate for seasonal influenza or
+#   A(H1N1)pdm09 was found.
+infectiousness_dispersion = 0.94
+# Model: all vaccination of the season is counted as done before the first cases, so there is no
+#   campaign during the run (the season's coverage below is by the vaccination season).
+vaccination_rate = 0.0
+vaccination_start_day = 0
+# Source: 7.4 % of the population of the Czech Republic was vaccinated against influenza in the
+#   season 2025-26 (insured persons, national health services register; presentation of the
+#   Ministry of Health, October 2026). It is the reference share; the age effect below gives the
+#   share of each age. Limit: the latest season, not that of the town's reference year.
+initial_coverage = 0.074
+# Source: 61 % (95% CI 57-65) against influenza A(H1N1)pdm09 (Belongia et al. 2016, Lancet Infect
+#   Dis, meta-analysis of 56 test-negative studies: protection against medically attended,
+#   laboratory-confirmed illness, used here as protection against infection); 33 % against
+#   A(H3N2) and 54 % against type B.
+vaccine_efficacy = 0.61
+# Derived: the effectiveness of influenza vaccine against A(H1N1)pdm09 falls by 6-11 percentage
+#   points a month (Ferdinands et al. 2017, Clin Infect Dis 64:544). Falling by 8.5 a month, 61 % is
+#   gone in 7.2 months (218 days); full protection for half of that gives the same total protection:
+#   109 days. Tokars et al. 2020 (Clin Infect Dis) argue that part of the measured decline can come
+#   from a leaky vaccine alone (2-5 points per 30 days), so this may count some waning twice.
+vaccine_days = 110
+
+[age_effects]
+# Derived: deaths per symptomatic illness by age (see fatality) as multiples of the 0.0218 % of the
+#   age group 18-49: 0.3345, 0.2108, 1, 2.969 and 45.29.
+fatality = [[0, 5, 0.3345], [5, 18, 0.2108], [18, 50, 1.0], [50, 65, 2.969], [65, 120, 45.29]]
+# Source: in households of the 2009 pandemic in the United States, contacts aged 18 or younger were
+#   twice as susceptible as adults (Cauchemez et al. 2009, NEJM 361:2619).
+susceptibility = [[0, 19, 2.0], [19, 120, 1.0]]
+# Derived: 25 % of people aged 65 and older were vaccinated in the same season (same source). With
+#   19.6 % of the population aged 65 or more (Eurostat 2019, data/reference) the rest, under 65,
+#   is (7.4 - 0.196 x 25) / 0.804 = 3.1 %. As multiples of the 7.4 % above: 0.4205 and 3.3784.
+starting_share = [[0, 65, 0.4205], [65, 120, 3.3784]]
+
+# What the Fitted values were fitted to, and what the disease is checked against (not fitted).
+[targets.household_attack_rate]
+# Laboratory-confirmed infection of household contacts with daily symptom assessment and testing,
+# 857 contacts, United States 2023-24 (Biddle et al. 2026, Epidemics 54:100888); the range is the
+# binomial 95 % interval (households cluster, so the real one is wider). Measured with nobody
+# vaccinated; the contacts in the study were partly vaccinated, so the fit is a lower bound.
+value = 0.44
+low = 0.407
+high = 0.473
+source = "Biddle et al. 2026, Epidemics 54:100888"
+with = { initial_coverage = 0.0 }
+[targets.reproduction_number]
+# The median of seasonal epidemics, IQR 1.19-1.37: the growth of real epidemics in populations
+# with their usual immunity, which the town lumps into the susceptible, and vaccination.
+value = 1.28
+low = 1.19
+high = 1.37
+source = "Biggerstaff et al. 2014, BMC Infect Dis 14:480"
+[targets.generation_interval]
+# Serial interval of A(H1N1)pdm09 (review); 2.6 days (95 % CrI 2.2-3.5) in US households of 2009
+# (Cauchemez et al. 2009, NEJM); realised household generation time 2.8 days (Chan et al. 2025,
+# Epidemics 50:100815).
+value = 2.8
+low = 2.2
+high = 3.5
+source = "Vink et al. 2014, Am J Epidemiol 180:865"
+[targets.share_before_symptoms]
+# Influenza A: 9.6 % (95 % CrI 5.9-14.7) of transmission more than half a day before the onset in
+# Hong Kong households 2008-2017 (Zhang, Cauchemez, Tsang et al. 2026); 1-8 % (Lau et al. 2010,
+# J Infect Dis); 16 % (7-25) in US households (Chan et al. 2025). The range covers the three.
+value = 0.10
+low = 0.01
+high = 0.25
+source = "Zhang et al. 2026; Lau et al. 2010; Chan et al. 2025"
+[targets.onset_to_death]
+# Median 12 days among fatal cases of A(H1N1)pdm09 in California; 5 days (median) in US children
+# 2004-2012 (Wong et al. 2013, Pediatrics 132:796).
+value = 12.0
+low = 5.0
+high = 14.0
+source = "Louie et al. 2009, JAMA 302:1896"

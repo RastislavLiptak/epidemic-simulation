@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from config_factory import disease_definition
 from synthetic_models import (
-    ASYMPTOMATIC,
     HOSPITAL,
+    MILD,
     VACCINATED,
     ForkModel,
     PlainModel,
@@ -31,17 +31,17 @@ def fork_model(**parameters):
 
 
 def test_people_in_different_states_spread_with_the_infectiousness_of_their_state():
-    model = fork_model(asymptomatic_infectiousness=0.25)
+    model = fork_model(mild_infectiousness=0.25)
     put_into_state(model, 0, "a", INFECTIOUS)
-    put_into_state(model, 1, "a", ASYMPTOMATIC)
+    put_into_state(model, 1, "a", MILD)
     put_into_state(model, 2, "a", EXPOSED)
     put_into_state(model, 3, "a", HOSPITAL)
     assert model._infectiousness("a")[:5].tolist() == [1.0, 0.25, 0.0, 0.0, 0.0]
 
 
 def test_the_trait_of_a_person_and_the_weight_of_their_state_multiply():
-    model = fork_model(asymptomatic_infectiousness=0.5)
-    put_into_state(model, 1, "a", ASYMPTOMATIC)
+    model = fork_model(mild_infectiousness=0.5)
+    put_into_state(model, 1, "a", MILD)
     model.disease_states["a"].infectiousness[1] = 3.0
     assert model._infectiousness("a")[1] == pytest.approx(1.5)
 
@@ -49,7 +49,7 @@ def test_the_trait_of_a_person_and_the_weight_of_their_state_multiply():
 def test_only_the_symptomatic_stay_at_home_and_the_confined_always_do():
     model = fork_model(stay_home=1.0)
     disease_state = model.disease_states["a"]
-    for person, state in ((0, INFECTIOUS), (1, ASYMPTOMATIC), (2, EXPOSED), (3, HOSPITAL)):
+    for person, state in ((0, INFECTIOUS), (1, MILD), (2, EXPOSED), (3, HOSPITAL)):
         model.diseases["a"]._enter(
             disease_state, np.array([person]), state, np.random.default_rng(person)
         )
@@ -68,10 +68,10 @@ def test_the_confined_are_at_home_even_when_their_day_takes_them_out():
 
 
 def test_the_hover_card_shows_the_infectiousness_of_the_state_and_the_time_left():
-    model = fork_model(asymptomatic_infectiousness=0.5)
-    put_into_state(model, 1, "a", ASYMPTOMATIC)
+    model = fork_model(mild_infectiousness=0.5)
+    put_into_state(model, 1, "a", MILD)
     health = describe_person(model, 1)["health"]["a"]
-    assert health["state"] == ASYMPTOMATIC and health["infectious"]
+    assert health["state"] == MILD and health["infectious"]
     assert health["infectiousness"] == pytest.approx(0.5)
     assert health["days_left"] == pytest.approx(1e6)
     assert health["model"] == "FORK"

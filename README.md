@@ -39,7 +39,7 @@ To add a disease, copy a file in `configs/diseases/` and change it. To add an in
 
 ## Adding a disease model
 
-Add a module `<name>.py` to `epidemic_sandbox/disease_models/` with one class `<Name>Model` derived from `DiseaseModelAbstract`; it is found by its file name and needs no registration. A model is declared by data (parameters, states, phases), so an existing model is the best template and the docstring of `DiseaseModelAbstract` lists what can be declared. The UI picks up its states and parameters automatically. Add a demo disease for it in `configs/diseases/`; the tests that every model has to pass run for it without further work.
+Add a module `<name>.py` to `epidemic_sandbox/disease_models/` with one class `<Name>Model` derived from `DiseaseModelAbstract`; it is found by its file name and needs no registration. A model is declared by data (parameters, states, phases), so an existing model is the best template and the docstring of `DiseaseModelAbstract` lists what can be declared. The UI picks up its states and parameters automatically. Add a disease that uses it in `configs/diseases/` (copy a real disease file, change the model name and the numbers, and give each number a source or mark it as an estimate); the tests that every model has to pass run for it without further work.
 
 ## Validation
 
@@ -47,11 +47,17 @@ Add a module `<name>.py` to `epidemic_sandbox/disease_models/` with one class `<
 python -m epidemic_sandbox.validate
 ```
 
-compares the generated population with the data in `data/reference/` (sources are listed there). Shares and means are tested for equivalence with the published values, and who meets whom is compared with published contact matrices. The same checks run in the tests. They validate the population and the structure of contacts, not the epidemics: a disease has to be fitted to real data by whoever defines it.
+compares the generated population with the data in `data/reference/` (sources are listed there). Shares and means are tested for equivalence with the published values; who meets whom is compared with published contact matrices, and how many people each age meets with contact surveys. The same checks run in the tests. They validate the population and the contacts, not the diseases.
+
+```bash
+python -m epidemic_sandbox.calibrate covid19
+```
+
+measures a disease in the town the way studies of real outbreaks measure it (household attack rate, reproduction number, generation interval, where infections happen, incidence of a disease that stays) and compares the results with the published targets in the `[targets]` table of its file. The comments of a disease file say which values were fitted to which target; `--set name=value` tries another value.
 
 ## Scope
 
-The town is self-contained and its people do not age, move or change jobs during a run. Distances, schedules and contacts are simplified; `configs/town.toml` and `epidemic_sandbox/town.py` are where to look when you need to know how.
+The town is self-contained and its people do not age, move or change jobs during a run; a disease can be brought in from outside at a constant rate (`outside_infections`). Every model can let a share of the infections run without symptoms (`asymptomatic_share`): those people behave as usual, spread as much as the disease file says and do not die of it. There are no seasons and no hospitals: the gravely ill are away from the town until they die. Distances, schedules and contacts are simplified; `configs/town.toml` and `epidemic_sandbox/town.py` are where to look when you need to know how.
 
 ## Development
 

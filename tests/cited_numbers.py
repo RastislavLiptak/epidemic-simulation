@@ -5,18 +5,22 @@ to be made in the test of the model on purpose, together with its source.
 """
 
 import pytest
-from config_factory import LIBRARY
+from config_factory import LIBRARY, disease_of
 
 from epidemic_sandbox.disease_models import DISEASE_MODELS
 
 
-def check_demo_numbers(key: str, shared: dict, demo_only: dict, age_effects: dict) -> None:
-    """The demo disease of model `key` has the shared and the demo-only values and age effects."""
-    demo = LIBRARY.catalog[f"demo_{key}"]
-    for name, value in {**shared, **demo_only}.items():
-        assert demo.parameters[name] == pytest.approx(value), name
+def check_disease_numbers(
+    key: str, shared: dict, disease_only: dict, age_effects: dict, name: str | None = None
+) -> None:
+    """The disease of model `key` (or the disease `name`) has the shared and its own values and the
+    age effects."""
+    disease = LIBRARY.catalog[name or disease_of(key)]
+    assert disease.model == key
+    for name, value in {**shared, **disease_only}.items():
+        assert disease.parameters[name] == pytest.approx(value), name
     for effect, rows in age_effects.items():
-        shown = [list(row) for row in demo.age_effects[effect]]
+        shown = [list(row) for row in disease.age_effects[effect]]
         assert all(row in shown for row in rows), effect
 
 

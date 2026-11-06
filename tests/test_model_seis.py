@@ -13,6 +13,7 @@ import math
 
 import numpy as np
 import pytest
+from cited_numbers import check_disease_numbers
 from config_factory import disease_definition
 from disease_helpers import ONE_DAY, SURE, UNIFORM, advance, new_state, place, state_names
 from mean_field import integrate, mean_course
@@ -21,8 +22,10 @@ from test_epidemic_model import arranged_model, make_infectious, state_of
 
 from epidemic_sandbox.disease_models import DISEASE_MODELS
 from epidemic_sandbox.disease_models.disease_model_abstract import (
+    ASYMPTOMATIC,
     COMMON_PARAMETERS,
     DEAD,
+    DYING,
     EXPOSED,
     INFECTIOUS,
     SUSCEPTIBLE,
@@ -64,22 +67,31 @@ def endemic_shares(runs=4, cases=2000, days=100, **overrides):
 
 
 def test_the_states_flows_and_roles_follow_the_definition():
-    assert list(SeisModel.STATE_COLORS) == [SUSCEPTIBLE, EXPOSED, INFECTIOUS, DEAD]
-    assert set(SeisModel.INFECTIOUS_STATES) == {INFECTIOUS}
+    states = [SUSCEPTIBLE, EXPOSED, INFECTIOUS, ASYMPTOMATIC, DYING, DEAD]
+    assert list(SeisModel.STATE_COLORS) == states
+    assert set(SeisModel.INFECTIOUS_STATES) == {INFECTIOUS, ASYMPTOMATIC}
+    assert set(SeisModel.SYMPTOMATIC_STATES) == {INFECTIOUS}
     assert SeisModel.INFECTION_ENTRY_STATE == EXPOSED and SeisModel.INITIAL_CASE_STATE == INFECTIOUS
     phases = SeisModel.PHASES
-    assert set(phases) == {EXPOSED, INFECTIOUS}, "the susceptible have no phase, the dead none"
+    assert set(phases) == {EXPOSED, INFECTIOUS, ASYMPTOMATIC}, "the susceptible and dead have none"
     assert phases[EXPOSED].next_state == INFECTIOUS and not phases[EXPOSED].fatal
+    assert phases[EXPOSED].branch_state == ASYMPTOMATIC
     assert phases[INFECTIOUS].next_state == SUSCEPTIBLE and phases[INFECTIOUS].fatal
-    assert phases[EXPOSED].branch_state is None and phases[INFECTIOUS].branch_state is None
+    assert phases[ASYMPTOMATIC].next_state == SUSCEPTIBLE and not phases[ASYMPTOMATIC].fatal
+    assert phases[INFECTIOUS].branch_state is None
     assert not SeisModel.PROTECTION and not SeisModel.RATES and not SeisModel.CONFINED_STATES
-    assert SeisModel.course_states() == {EXPOSED, INFECTIOUS}
+    assert SeisModel.course_states() == {EXPOSED, INFECTIOUS, ASYMPTOMATIC}
 
 
 def test_the_parameters_are_the_common_ones_and_the_two_durations_without_immunity():
     assert SeisModel.PARAMETERS.keys() == COMMON_PARAMETERS.keys() | {
         "incubation_days",
         "infectious_days",
+        "death_delay_days",
+        "severe_protection",
+        "asymptomatic_share",
+        "asymptomatic_days",
+        "asymptomatic_infectiousness",
     }
 
 
@@ -284,8 +296,8 @@ def test_the_courses_are_the_two_stays_followed_by_death_or_susceptibility():
     survive, die = sorted(model.courses(), key=lambda course: course.end != SUSCEPTIBLE)
     assert survive.end == SUSCEPTIBLE and survive.probability == pytest.approx(0.75)
     assert die.end == DEAD and die.probability == pytest.approx(0.25)
-    for course in (survive, die):
-        assert course.stays == ((EXPOSED, 2.0, 0.0), (INFECTIOUS, 5.0, 1.0))
+    assert survive.stays == ((EXPOSED, 2.0, 0.0), (INFECTIOUS, 5.0, 1.0))
+    assert die.stays == ((EXPOSED, 2.0, 0.0), (INFECTIOUS, 5.0, 1.0), (DYING, 0.0, 0.0))
     assert [c.end for c in SeisModel(ONE_DAY).courses()] == [SUSCEPTIBLE]
 
 
@@ -473,3 +485,30 @@ def test_an_exposed_neighbour_does_not_infect_but_an_infectious_one_does():
 
 def test_the_model_is_found_by_the_registry_under_its_key():
     assert DISEASE_MODELS["seis"] is SeisModel
+
+
+# --- the strep throat disease ---------------------------------------------------------------------
+
+# (values both the disease and the model default have, the disease's own values, age effects)
+SOURCED = (
+    {},
+    {  # CDC clinical guidance, Danchin et al. 2007, Fragaszy et al. 2018, Van Kerckhove et al. 2013
+        "transmission": 0.042,
+        "contact_distance": 2.0,
+        "community_factor": 1.0,
+        "incubation_days": 3.5,
+        "infectious_days": 4.0,
+        "duration_shape": 5.4,
+        "fatality": 0.0,
+        "stay_home": 0.40,
+        "limit_outings": 0.33,
+        "outside_infections": 0.076,
+        "susceptibility_cv": 0.0,
+        "infectiousness_dispersion": 0.0,
+    },
+    {"outside_infections": [[0, 3, 0.37], [3, 16, 1.0], [16, 120, 0.37]]},
+)
+
+
+def test_the_disease_has_the_numbers_its_comment_cites():
+    check_disease_numbers("seis", *SOURCED)
