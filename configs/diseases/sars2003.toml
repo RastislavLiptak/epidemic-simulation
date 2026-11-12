@@ -8,23 +8,64 @@
 # published number, Derived = computed from sources, Fitted = tuned in the model to a published
 # target (the targets are in [targets] below; `python -m epidemic_sandbox.analysis.calibrate sars2003`
 # measures them), Estimate = no number found, so a reasoned guess, Model = a modelling convention.
+# Known limitations (checks that fail, measured in wave 3 with 100 first cases and the generations
+# from the third on, 24 runs):
+#   - generation interval 7.3 days against 8.4-10: no transmission in hospitals late in the illness;
+#   - the reproduction number after the alert is 0.92, below 1 but near it: the outbreak lasts long
+#     (10 to 16 generations) in a town of 30,000 with only the faster admission;
+#   - share of children: refitted in wave 3 (susceptibility 0.233 gave 0.079; 0.217 gave 0.064 and
+#     0.188 gave 0.068: the measurement scatters by about 0.01, as much as the width of the range).
 model = "seiqr"
 # Model: a scenario choice, not a property of the disease.
 initial_infected = 15
 
 [parameters]
-# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
-#   the household attack rate (targets.household_attack_rate). Measured (16 runs, within households
-#   only, with the default admission, children as susceptible as in age_effects): 0.042 gives 6.9 %
-#   (0.02 gave 4.5 % and 0.04 7.7 % with children as susceptible as adults).
-transmission = 0.049
+# Fitted: the chance per day of exposure at full weight (close range) of passing the virus; fitted
+#   together with room_exposure to the household attack rate (targets.household_attack_rate, at the
+#   admission delay of 3.67 days) and the reproduction number (at 4.85 days), alternating
+#   (`calibrate sars2003 --fit transmission=household_attack_rate --fit room_exposure=reproduction_number`;
+#   the children's susceptibility below fitted before). Measured at 0.00766: household attack rate 0.081
+#   (24 runs of 40 index households, 3,000 people; 0.091 at 4.85 days), reproduction number 1.06 at
+#   4.85 days (24 runs of 100 first cases, 30,000 people, generations 3 to 12; 0.7-1.2 for other
+#   windows of generations, see measure.FIRST_GENERATION; target 1.15, range 0.99-1.34).
+transmission = 0.00766
 # Model: the 2 m of the setting's own description of droplet spread; no source measures a distance.
 contact_distance = 2.0
-# Fitted: how much more easily the virus passes between people of different households than within
-#   one per hour within contact distance; the target is the reproduction number from person to person
-#   outside hospitals before the alert (targets.reproduction_number). Measured (24 runs in a town of
-#   30,000, admission after 4.85 days, with the other values as here): 38 gives 0.97, 55 gives 1.49.
-community_factor = 44.0
+# Source: exposure is weighted by the distance of the two people: 1 up to near_distance, falling with
+#   the inverse square of the distance beyond it, 0 beyond contact_distance. The NHS COVID-19 app
+#   scored the proximity of an exposure as "constant below 1 m and decreased as the inverse square of
+#   the distance if greater than 1 m", and its scores were proportional to the probability of
+#   transmission: "Longer exposures at greater distances had risk similar to that of shorter
+#   exposures at closer distances" (Ferretti et al. 2024, Nature 626:145, for SARS-CoV-2; none for
+#   the other droplet diseases was found, so the same distance weighting is used).
+near_distance = 1.0
+# Source for 1: the risk of infection per hour of exposure is the same in every setting; households
+#   dominate transmission through the long duration and the closeness of their exposures, not through
+#   a higher hazard (Ferretti et al. 2024, Nature 626:145: "The long duration of household
+#   exposures - 33 h on average - and their closer proximity explain their disproportionate role").
+#   No source gives another factor for this disease, so none is used.
+community_factor = 1.0
+# Fitted (checked against a source): everybody of an indoor venue is exposed to every infectious
+#   person of the venue at any distance with this multiple of the close-range hazard at full weight.
+#   The household attack rate fixes the close hazard (0.00766 per day, 0.00032 per hour: 9.93 x 0.00032
+#   = 0.0032 per hour and infectious person, inside the Wells-Riley range 0.00026-0.021 of COVID-19,
+#   see covid19.toml; no emission of SARS-CoV was found, so the same range is Estimated). The
+#   reproduction number at the admission after 4.85 days is then 1.06 (0.99-1.34; 24 runs of 100 first
+#   cases, generations 3 to 12, standard error about 0.04): an earlier measurement of 0.68 started from
+#   300 first cases and counted the first generations, which are lower (offspring by generation 0.47,
+#   0.60, 0.92, 1.25, 1.11, 1.31, 0.99, 0.86...).
+room_exposure = 9.93
+# Derived: the emission of an infectious person who is asleep relative to awake. The aerosol that people
+#   breathe out is measured by activity (Morawska et al. 2009, as used by Buonanno et al. 2020, Environ
+#   Int 141:105794, Table 1: droplets of 0.8, 1.8, 3.5 and 5.5 um per cm3, breathing 0.084, 0.009, 0.003,
+#   0.002; voiced counting 0.236, 0.068, 0.007, 0.011; whispered counting 0.110, 0.014, 0.004, 0.002).
+#   Weighted by the volume of a droplet (D^3) and the inhalation rate (0.49 m3/h at rest, 0.54 standing),
+#   breathing at rest emits 0.29 x 0.49 against 1.39 x 0.54 for talking: 1 : 5.2. Awake is taken as
+#   talking (Burridge et al. 2021, arXiv 2009.02999: 5 quanta/h talking, 1 quiet), so asleep is 1 / 5.2 =
+#   0.2. Applies to the close range and to the shared air alike, to everybody at home in the sleeping
+#   hours of the dwellings (town.toml). Measured on healthy people, so not specific to the virus
+#   (Estimate for the other diseases of the town: the same physics).
+asleep_emission = 0.2
 # Source: mean incubation period 4.6 days (95% CI 3.8-5.8) in 1,755 Hong Kong patients (Leung et al.
 #   2004, Ann Intern Med); infectiousness begins with the symptoms: no transmission before them was
 #   reported (Lipsitch et al. 2003, Science) and less than 11 % of transmission could be before them
@@ -35,12 +76,16 @@ incubation_days = 4.6
 #   Lancet 361:1761). The default scenario is the outbreak under control.
 detection_delay_days = 3.67
 # Derived: the mean serial interval of the cases that fell ill in the first two weeks in Singapore,
-#   before full-scale control, was 10.0 days (Lipsitch et al. 2003). For constant infectiousness
-#   from the onset it is the incubation period plus half the infectious period: 2 x (10.0 - 4.6) =
-#   10.8 days from the onset, minus the delay: the time a case nobody recognised spreads after it.
-#   The viral load peaks about 10 days after the onset (Peiris et al. 2003, Lancet), so constant
-#   infectiousness is a simplification; it matters only for undetected cases, which the default
-#   scenario does not have.
+#   before full-scale control, was 10.0 days (SD 2.8; Lipsitch et al. 2003, Science). For constant
+#   infectiousness from the onset it is the incubation period plus half the infectious period:
+#   2 x (10.0 - 4.6) = 10.8 days from the onset, minus the delay: the time a case nobody recognised
+#   spreads after it. Constant infectiousness before admission is what the household data show:
+#   the probability of transmission to household contacts per day from the onset to admission had
+#   peaks around day 2 and day 10 and "does not simply reflect temporal variability in the viral
+#   load" (Pitzer et al. 2007, Am J Epidemiol), although the viral load rises to a peak around day
+#   10 (Peiris et al. 2003, Lancet). The early serial interval also contains transmission in
+#   hospitals late in the illness, which the town does not have. It matters only for undetected
+#   cases, which the default scenario does not have.
 undetected_days = 7.1
 # Derived: isolation lasts until the infection would have ended (the constraint 1/gamma2 = 1/gamma1
 #   - 1/alpha of Chowell et al. 2003), as long as the undetected period.
@@ -50,8 +95,14 @@ quarantine_days = 7.1
 #   PLoS Comput Biol): every case is recognised and admitted.
 detection_coverage = 1.0
 # Model: an admitted case is in hospital, away from the town, and infects nobody in it (those it
-#   infects in hospital, health workers and patients, are outside the town).
+#   infects in hospital, health workers and patients, are outside the town); the value would apply
+#   to a case isolated at home.
 quarantine_infectiousness = 0.0
+# Source: the cases were isolated in hospital: the Hong Kong estimates are of cases admitted to
+#   hospital (Donnelly et al. 2003) and "most reported hospitalization within 5 days of fever onset
+#   (80.6 %)" (Lau et al. 2004, Emerg Infect Dis). Every detected case is admitted, away from the
+#   town.
+admission_share = 1.0
 # Derived: stays with the dispersion of the serial interval of Singapore over the whole outbreak,
 #   SD 3.8 days at a mean of 8.4 (Lipsitch et al. 2003): a coefficient of variation of 0.45, the gamma
 #   shape 1 / 0.45^2 = 4.9.
@@ -70,40 +121,57 @@ death_delay_days = 12.9
 # Model: SARS died out within a year, so the duration of immunity does not matter.
 immunity_days = 36500
 immunity_protection = 1.0
-# Derived: before admission a case has fever and feels ill but nobody knows it is SARS, so they
-#   behave as people with a confirmed respiratory infection do: 40 % of the PCR-confirmed episodes of
-#   influenza A in the community took time off work, education or childcare (Fragaszy et al. 2018,
-#   Influenza Other Respir Viruses), and every SARS case had symptoms.
-stay_home = 0.40
+# Derived (the rule for every illness that is not yet recognised, see influenza.toml): before
+#   admission a case has fever and feels ill but nobody knows it is SARS. Adults of 16-64 years took
+#   time off work in 31 % of PCR-confirmed episodes of influenza A, children in 56 % (the age effect
+#   below), for 3.6 days on average from the onset (Fragaszy et al. 2018, Influenza Other Respir
+#   Viruses 12:171, Table 2), which covers 3.6 / 3.67 = 0.98 of the time before admission:
+#   0.31 x 0.98 = 0.30. The same applies to the undetected (no rule found for their later days).
+stay_home = 0.30
 # Estimate: of those who still went out, a third skipped leisure (Van Kerckhove et al. 2013, Am J
-#   Epidemiol: contacts at leisure 0.06 and at work or school 0.09 of the usual; 1 - 0.06 / 0.09).
-limit_outings = 0.33
+#   Epidemiol: contacts at leisure 0.06 and at work or school 0.09 of the usual; 1 - 0.06 / 0.09;
+#   the full text was not available to the reviewer), with the coverage above: 0.33 x 0.98 = 0.32.
+limit_outings = 0.32
 # Source: of 1,068 close contacts of SARS patients in Hong Kong who had no symptoms, 2 had antibodies
 #   (0.19 %; Leung et al. 2004, Emerg Infect Dis 10(9)): an infection almost always led to illness.
 #   No course without symptoms.
 asymptomatic_share = 0.0
 # Not found: a measured variation of susceptibility between people.
 susceptibility_cv = 0.0
-# Fitted: the gamma shape of how infectious an infection is; the target is the dispersion of the
-#   number of people one case infected (targets.dispersion_k), to which the town's own variation
-#   adds. Measured (24 runs): 0.16 gives 0.11.
+# Fitted (not refitted in wave 2, it is within the range): the gamma shape of how infectious an infection
+#   is; the target is the dispersion of the number of people one case infected (targets.dispersion_k), to
+#   which the town's own variation adds. Measured at 0.25 (admission after 4.85 days, 8 runs of 300
+#   first cases): 0.150, target 0.16 (0.11-0.64).
 infectiousness_dispersion = 0.25
 
 [age_effects]
-# Fitted: the susceptibility of children relative to adults; the target is the share of the cases
-#   under 18 (targets.share_under_18). Even with transmission only within households, children are
-#   31 % of the infections of the model at equal susceptibility, against 6 % in Hong Kong, so they
-#   caught it much less than their contacts would make them. Why is not known: lower exposure (adults
-#   were isolated early), lower susceptibility or milder infections that were not recognised (Leung
-#   and Chiu 2004, Paediatr Respir Rev). Measured (24 runs): 0.15 gives 6.1-6.2 %.
-susceptibility = [[0, 18, 0.15], [18, 120, 1.0]]
+# Fitted (refitted in wave 3 with the corrected reproduction-number estimator: 0.141 -> 0.233, share
+#   of children 0.079 at 0.233, 0.064 at 0.217, 0.068 at 0.188, 24 runs of 100 first cases): the
+#   susceptibility of children relative to adults; the target is the share of children
+#   among the cases that spread from person to person outside hospitals (targets.share_under_18,
+#   `--fit age.susceptibility.0-18=share_under_18`). Even with transmission only within households,
+#   children are 31 % of the infections of the model at equal susceptibility, so they caught it much
+#   less than their contacts would make them. Why is not known: lower exposure (adults were isolated
+#   early), lower susceptibility or milder infections that were not recognised (Leung and Chiu
+#   2004, Paediatr Respir Rev). Earlier measured at 0.141 with the final transmission: 0.063 (8 runs, 4.85
+#   days; target 0.075, range 0.064-0.086, just below; wave 2).
+susceptibility = [[0, 18, 0.233], [18, 120, 1.0]]
 # Source: WHO, 7 May 2003, as multiples of the 6 % of the base age group: 0.5 / 6 = 0.0833,
 #   6 / 6 = 1, 15 / 6 = 2.5 and 50 / 6 = 8.333.
 fatality = [[0, 25, 0.0833], [25, 45, 1.0], [45, 65, 2.5], [65, 120, 8.333]]
+# Derived: children of 0-15 years took time off school or childcare in 56 % of the episodes of
+#   influenza A, adults of 16-64 years in 31 % (Fragaszy et al. 2018, Table 2): 56 / 31 = 1.806.
+#   Estimate: people of 65 and older as the adults (Fragaszy's 13 % of the 65+ is time off work
+#   of the few who work, 8 episodes; how retired people change their outings when ill was not
+#   measured).
+stay_home = [[0, 16, 1.806]]
 
 # What the Fitted values were fitted to, and what the disease is checked against (not fitted).
 [targets.household_attack_rate]
-# 188 of 2,139 household members (8 %, 95% CI 7.0-9.2), Hong Kong 2003, with the cases admitted.
+# 188 secondary cases among the household members (2,139 of whom stayed well: 8 %, 95% CI 7.0-9.2),
+# Hong Kong 2003, with the cases admitted; 11.7 % in the earlier and 5.9 % in the later phase of the
+# epidemic, whose median times at home before admission were 4 and 2 days (Lau et al. 2004). A
+# check of the phases: the model gives 11.6 % at the earlier delay of 4.85 days.
 value = 0.08
 low = 0.070
 high = 0.092
@@ -118,6 +186,7 @@ value = 1.15
 low = 0.99
 high = 1.34
 source = "Wallinga and Teunis 2004; Leung et al. 2004"
+initial = 100
 with = { detection_delay_days = 4.85 }
 [targets.reproduction_number_after_alert]
 # Hong Kong after the alert (Wallinga and Teunis 2004), with all the measures of the time, not
@@ -128,6 +197,7 @@ value = 0.7
 low = 0.0
 high = 1.0
 source = "Wallinga and Teunis 2004, Am J Epidemiol 160:509"
+initial = 100
 [targets.dispersion_k]
 # Singapore 2003 (90% CI 0.11-0.64); Beijing 0.17.
 value = 0.16
@@ -136,13 +206,30 @@ high = 0.64
 source = "Lloyd-Smith et al. 2005, Nature 438:355"
 with = { detection_delay_days = 4.85 }
 [targets.share_under_18]
-# About 110 of 1,800 cases in Hong Kong were under 18 ("only 6 %"); the binomial 95 % interval. A
-# check: children were less exposed (adults were isolated early) and no susceptibility difference
-# was published (Leung and Chiu 2004).
-value = 0.061
-low = 0.050
-high = 0.072
-source = "Leung TF et al. 2003, Paediatr Respir Rev"
+# Derived: 121 children under 18 were registered in Hong Kong, 7 % of the cases notified, 89 of them
+# confirmed by serology, and "About 60% of serologically confirmed children in Hong Kong were victims
+# of a point source community outbreak due to environmental contamination" (Amoy Gardens; Leung and
+# Chiu 2004, Paediatr Respir Rev 5:275); children were "usually secondary household contacts of
+# affected adults". The town has neither the hospitals (49.3 % of the 1,755 cases) nor Amoy Gardens
+# (18.8 %; Leung GM et al. 2004, Ann Intern Med), which leaves 0.319 x 1,755 = 560 cases. With no
+# child infected in a hospital (an Estimate: the health workers and most patients were adults),
+# 40 % of the children are among them: 0.4 x 89 = 36 to 0.4 x 121 = 48 children, 6.4 % to 8.6 %;
+# the middle and the two as the range.
+value = 0.075
+low = 0.064
+high = 0.086
+source = "Leung CW and Chiu 2004, Paediatr Respir Rev 5:275; Leung GM et al. 2004"
+with = { detection_delay_days = 4.85 }
+[targets.generation_interval]
+# The mean serial interval in Singapore was 8.4 days (SD 3.8) over the outbreak and 10.0 days (SD
+# 2.8) for the cases with onset in its first two weeks, before full-scale control (Lipsitch et al.
+# 2003, Science); the range is the two. A check that the town cannot meet: it has no hospitals,
+# where much of the transmission happened late in the illness (the second peak of infectiousness
+# around day 10, Pitzer et al. 2007), so its interval is expected to be shorter.
+value = 8.4
+low = 8.4
+high = 10.0
+source = "Lipsitch et al. 2003, Science 300:1966"
 with = { detection_delay_days = 4.85 }
 [targets.onset_to_death]
 value = 23.7

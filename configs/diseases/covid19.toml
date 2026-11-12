@@ -4,54 +4,104 @@
 # reasoned guess (the reasoning is given), Model = a modelling convention. A share of the infections
 # never has symptoms (asymptomatic_share below): such people spread less, behave as usual and do not
 # die of it.
+# Known limitations (checks that fail in the town, measured in wave 3; see the targets and
+# `calibrate covid19 --initial 10`):
+#   - household attack rate 0.25-0.28 against 0.14-0.248: fitted to the top of the range;
+#   - growth rate 0.15 a day against 0.278: the target comes from a generation interval of 3.96 days
+#     (see targets.reproduction_number), the town's 5.6 days with R0 2.0-2.2 gives about 0.16;
+#   - generation interval 5.6 days (3.95-5.2) and share before symptoms 0.66 (0.30-0.57): the two cannot
+#     be met together with the sourced course (see latent_days);
+#   - visit attack rate 0.004 against 0.059: visits in the town are short and few (population side);
+#   - hourly risk 0.0035 against 0.011: the source is a lower bound of the risk;
+#   - the town lacks long leisure contacts (contacts of 4 hours or more at other places 0.13 and 0.02 a
+#     day against 0.25 and 0.17 in POLYMOD).
 model = "sepir"
 # Model: a scenario choice, not a property of the disease.
 initial_infected = 15
 
 [parameters]
-# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
-#   the household attack rate (targets.household_attack_rate). Measured (16 runs, members infected at
-#   home in chains from the first case, with the course below): 0.078 gives 14.9 %, 0.085 17.1 %,
-#   0.09 17.0 % (standard error about 1.5 points).
-transmission = 0.085
+# Fitted: the chance per day of exposure at full weight (close range, within near_distance) of
+#   passing the virus; fitted together with room_exposure to the household attack rate
+#   (targets.household_attack_rate, fitted to 0.245) and the reproduction number, alternating (`python
+#   -m epidemic_sandbox.analysis.calibrate covid19 --fit transmission=household_attack_rate --fit
+#   room_exposure=reproduction_number`). Measured at 0.0179 and room_exposure 9.94: household attack
+#   rate 0.253 (24 runs of 40 index households in a town of 3,000, standard error 0.015), reproduction
+#   number 2.0 (24 runs of 10 first cases in a town of 30,000, generations 3 to 4; from the growth
+#   2.1-2.2; the offspring of other windows of generations give 1.6 to 2.4, see measure.FIRST_GENERATION:
+#   the number is known to about 0.3; wave 3, seeds 1-24).
+transmission = 0.0179
 # Model: the 2 m of the setting's own description of droplet spread; no source measures a distance.
 contact_distance = 2.0
-# Fitted: how much more easily the virus passes between people of different households than within
-#   one per hour within contact distance (household hours include the night); the target is the
-#   reproduction number before interventions (targets.reproduction_number). Measured (16 to 24 runs in
-#   a town of 30,000, with the infections without symptoms below, at the transmission above): 36 gives
-#   2.07 and 39 gives 2.27 (the runs scatter by about 0.07). Check not used in the fit: the
-#   share of the infections in households (see the calibration) against the 5-7 % of uncontrolled
-#   outbreaks and the 19-34 % of periods with control (Curmei et al. 2021, Int J Epidemiol).
-community_factor = 38.0
-# Derived: the incubation period of 5.5 days (mean, SD 2.1 days, Ferretti et al. 2020, Science)
-#   minus the presymptomatic period below.
-latent_days = 4.1
-# Derived: the mean latent period is 5.5 days (95% CI 5.1-5.9) and the mean incubation period 6.9
-#   days (Xin et al. 2022, Clin Infect Dis), so infectiousness begins 6.9 - 5.5 = 1.4 days before
-#   symptoms.
-presymptomatic_days = 1.4
-# Fitted: the part of the symptomatic period at full infectiousness; with the waning part (below) it
-#   gives the share of transmission before the symptoms (targets.share_before_symptoms) and the
-#   generation interval (targets.generation_interval). Infectiousness peaks at the onset and falls in
-#   the following days (He et al. 2020, Nat Med). Measured (16 runs, with the infections without
-#   symptoms below): 1.2 days gives 55-57 % and 6.2-6.4 days, 1.5 days 52-53 % and 6.4-6.5, 1.75 days
-#   48-49 % and 6.5-6.6, 2 days 46-48 % and 6.5-6.7. A note on the sources: with an incubation period
-#   of 5.5 days and 1.4 presymptomatic days, 46 % before symptoms cannot come with a generation
-#   interval of 5.0 days (it would take transmission after the onset to happen before it), so the
-#   share is kept near its value and the interval lands in the upper part of the 95 % interval of
-#   Ganyani et al. 2020 (3.78-6.78 days); the infections without symptoms, spread over their 8 days,
-#   lengthen it by about 0.2 days.
+# Source: exposure is weighted by the distance of the two people: 1 up to near_distance, falling with
+#   the inverse square of the distance beyond it, 0 beyond contact_distance. The NHS COVID-19 app
+#   scored the proximity of an exposure as "constant below 1 m and decreased as the inverse square of
+#   the distance if greater than 1 m", and its scores were proportional to the probability of
+#   transmission: "Longer exposures at greater distances had risk similar to that of shorter
+#   exposures at closer distances" (Ferretti et al. 2024, Nature 626:145, for SARS-CoV-2; none for
+#   the other droplet diseases was found, so the same distance weighting is used).
+near_distance = 1.0
+# Source for 1: the risk of infection per hour of exposure is the same in every setting; households
+#   dominate transmission through the long duration and the closeness of their exposures, not through
+#   a higher hazard (Ferretti et al. 2024, Nature 626:145: "The long duration of household
+#   exposures - 33 h on average - and their closer proximity explain their disproportionate role").
+#   No source gives another factor for this disease, so none is used.
+community_factor = 1.0
+# Fitted (to the reproduction number, targets.reproduction_number) and checked against a source: every
+#   susceptible person in an indoor venue is exposed to every infectious person of the venue, at any
+#   distance, with this multiple of the close-range hazard at full weight (the air of a room is shared:
+#   offices, classes, restaurants, buses). Plausible
+#   range (Derived, Wells-Riley steady state: hazard per hour = q x p / (V x lambda); q 0.3-5 quanta/h
+#   (1 quiet, 5 talking; Burridge et al. 2021, arXiv 2009.02999; Buonanno et al. 2020, Environ Int
+#   141:105794: below 1 for a symptomatic person at rest, up to 100 speaking), p 0.48 m3/h (8 l/min,
+#   Burridge), V 100-150 m3 (Assumption: 2.5 m ceiling), lambda = ventilation 0.5-3 per hour (0.2 in
+#   Italian buildings, Buonanno; 4-20 l/s per person in offices, Burridge) + 0.63 per hour
+#   inactivation (half-life 1.1 h, Buonanno from van Doremalen et al. 2020)): 0.00026 to 0.021 per
+#   hour and infectious person, 0.0015 for quiet people at base ventilation, 0.0076 talking. Fitted:
+#   9.94 x 0.0179 / 24 per hour = 0.0075 per hour (about q 5 at base ventilation), inside the range.
+#   The reproduction number is then 2.0-2.2 (range 1.9-2.6) by the generations 3-4 and by the growth;
+#   an earlier measurement of 1.71 started from 300 first cases at once and counted the generation
+#   whose households were already saturated by them.
+room_exposure = 9.94
+# Derived: the emission of an infectious person who is asleep relative to awake. The aerosol that people
+#   breathe out is measured by activity (Morawska et al. 2009, as used by Buonanno et al. 2020, Environ
+#   Int 141:105794, Table 1: droplets of 0.8, 1.8, 3.5 and 5.5 um per cm3, breathing 0.084, 0.009, 0.003,
+#   0.002; voiced counting 0.236, 0.068, 0.007, 0.011; whispered counting 0.110, 0.014, 0.004, 0.002).
+#   Weighted by the volume of a droplet (D^3) and the inhalation rate (0.49 m3/h at rest, 0.54 standing),
+#   breathing at rest emits 0.29 x 0.49 against 1.39 x 0.54 for talking: 1 : 5.2. Awake is taken as
+#   talking (Burridge et al. 2021, arXiv 2009.02999: 5 quanta/h talking, 1 quiet), so asleep is 1 / 5.2 =
+#   0.2. Applies to the close range and to the shared air alike, to everybody at home in the sleeping
+#   hours of the dwellings (town.toml). Measured on healthy people, so not specific to the virus
+#   (Estimate for the other diseases of the town: the same physics).
+asleep_emission = 0.2
+# Fitted (Ferretti et al. 2020 as the one source of the course): the incubation period is log-normal
+#   with a mean of 5.5 days and a standard deviation of 2.1 (Ferretti et al. 2020, Science, from Lauer
+#   et al.), and the generation time has a mean of 5.0 days and a standard deviation of 1.9 (Weibull,
+#   40 transmission pairs, same paper), so infectiousness must begin well before the onset. The split
+#   of the 5.5 days into the latent and the presymptomatic period was scanned (3 runs of 300 first
+#   cases, 30,000 people; latent 1.5-3.0 days, presymptomatic infectiousness 0.4-0.8) for the
+#   generation interval (5.0, range 3.95-5.2) and the share before symptoms (0.46, range 0.30-0.57):
+#   they cannot both be met, a short latent period gives 4.5-5.3 days with 0.57-0.74, a long one 6.4
+#   days with 0.49. 2.5 and 3.0 days with weight 0.8 were kept because with them the household attack
+#   rate and the reproduction number are met together (with 1.5 and 4.0 days the household chains of
+#   28 days amplify so that the reproduction number falls to 0.7-0.8 at the same attack rate).
+#   Measured with the final values: generation interval 5.67 days, share before symptoms 0.64 (both
+#   outside their ranges, see the targets).
+latent_days = 2.5
+presymptomatic_days = 3.0
+# Fitted (wave 2, see latent_days): the part of the symptomatic period at full infectiousness.
+#   Infectiousness peaks at the onset and falls in the following days (He et al. 2020, Nat Med).
 infectious_days = 1.75
 # Derived: no infectious virus was isolated after day 8 of symptoms in mild cases (Wolfel et al. 2020,
 #   Nature 581:465), so the symptomatic period ends 8 days after the onset on average: 8 - 1.75 = 6.25
 #   days of waning infectiousness, in which a person is still ill.
 waning_days = 6.25
-# Fitted: the infectiousness of the waning part relative to the full one (see infectious_days).
+# Fitted (wave 2): the infectiousness of the waning part relative to the full one (see latent_days).
 waning_infectiousness = 0.08
-# Source: the secondary attack rate of presymptomatic cases relative to symptomatic ones is 1.00
-#   (95% CI 0.37-2.71, 4 studies; Buitrago-Garcia et al. 2022, PLoS Med 19:e1003987).
-presymptomatic_infectiousness = 1.0
+# Fitted (wave 2, see latent_days): the relative infectiousness of the presymptomatic period;
+#   starting value 0.8. The secondary attack rate of presymptomatic cases relative to symptomatic
+#   ones is 1.00 (95% CI 0.37-2.71, 4 studies; Buitrago-Garcia et al. 2022, PLoS Med 19:e1003987),
+#   so values from 0.37 on are consistent with it.
+presymptomatic_infectiousness = 0.8
 # Derived: 19 % (95% CI 15-25) of the infections found by contact and outbreak investigations had no
 #   symptoms throughout the follow-up (Buitrago-Garcia et al. 2022, 46 studies). Their ages are not
 #   reported, so the share is that of the population of the town with the differences by age of Sah
@@ -65,58 +115,65 @@ asymptomatic_share = 0.192
 asymptomatic_infectiousness = 0.32
 # Derived: the one estimate found of the infectious period of infections without symptoms is a median
 #   of about 6.5 to 9.5 days (Byrne et al. 2020, BMJ Open 10:e039856, a review); the middle, 8 days.
-#   Virus is cleared faster without symptoms (Cevik et al. 2021, Lancet Microbe), and the infection
-#   with symptoms spreads for 9.4 days here (1.4 + 8).
+#   Virus is cleared faster without symptoms (Cevik et al. 2021, Lancet Microbe).
 asymptomatic_days = 8.0
-# Derived: stays of the latent and presymptomatic stage (4.1 and 1.4 days) with this gamma shape
-#   add up to the standard deviation of the incubation period of 2.1 days (mean 5.5 days, Ferretti
-#   et al. 2020): sqrt((4.1^2 + 1.4^2) / 4.3) = 2.1.
-duration_shape = 4.3
+# Derived: stays of the latent and presymptomatic stage (2.5 and 3.0 days) with this gamma shape add
+#   up to the standard deviation of the incubation period of 2.1 days (mean 5.5 days, Ferretti et
+#   al. 2020): (2.5^2 + 3.0^2) / 2.1^2 = 3.46.
+duration_shape = 3.5
 # Derived: infection fatality by age (Levin et al. 2020, Eur J Epidemiol 35:1123): log10(IFR in %)
 #   = -3.27 + 0.0524 x age, used at ages 5 to 85 (nearest end below 5); from 85 the 28.3 % (95% CI
 #   21.8-36.6) of their Table 3 for the age group 85+, not the regression, which is extrapolated
 #   there (it reaches 51 % at 95). Average over the Czech population of 2019 (Eurostat,
-#   data/reference): 1.455 %. The age effects below are the average of each age range relative to
-#   it. Levin et al. count the whole population with its care homes, as the town has them. Limit:
-#   serosurveys of the general population give less for the oldest (85-89 8.9 %, 90+ 17.4 %,
-#   Brazeau et al. 2022, Commun Med).
+#   data/reference), each year of age taken at its middle (age + 0.5): 1.455 %. The age effects
+#   below are the average of each age range relative to it. Levin et al. count the whole
+#   population with its care homes, as the town has them. Limit: serosurveys of the general
+#   population give less for the oldest (85-89 8.9 %, 90+ 17.4 %, Brazeau et al. 2022, Commun Med).
 fatality = 0.01455
 # Derived: the mean time from the onset of symptoms to death is 17.8 days (95% CrI 16.9-19.2,
 #   Verity et al. 2020, Lancet Infect Dis). The onset is the start of the symptomatic period, at
 #   whose end (8 days after the onset) those who die of it are taken ill gravely, so the time from
 #   there to death is 17.8 - 8 = 9.8 days.
 death_delay_days = 9.8
-# Source: protection of 80.5 % (95% CI 75.4-84.5) against repeat infection about 6 months after the
-#   first infection (Hansen et al. 2021, Lancet, Denmark). Limit: the model has no age-dependent
-#   protection; among people aged 65 and older the protection was 47.1 % (24.7-62.8).
-immunity_protection = 0.805
-# Derived: protection against re-infection by the ancestral, alpha and delta variants pooled
-#   was 85.2 % (95% UI 60.8-96.0) at 4 weeks after infection, 78.6 % (49.8-93.6) at 40 weeks and
-#   55.5 % (18.8-81.7) at 80 weeks (COVID-19 Forecasting Team 2023, Lancet 401:833). The model holds
-#   the protection above for a fixed time: the same protection added up over the 80 weeks of data
-#   (85.2 % for 4 weeks, then straight lines between the three points: 59.7 protected weeks) is
-#   59.7 / 0.805 = 74 weeks = 520 days.
-immunity_days = 520
+# Derived: protection against re-infection by the ancestral, alpha and delta variants pooled was
+#   85.2 % (95% UI 60.8-96.0) at 4 weeks after infection, 78.6 % (49.8-93.6) at 40 weeks and 55.5 %
+#   (18.8-81.7) at 80 weeks (COVID-19 Forecasting Team 2023, Lancet 401:833). The same protection
+#   added up over the 80 weeks of data (85.2 % for 4 weeks, then straight lines between the three
+#   points) is 59.7 protected weeks, held here as complete protection for 59.7 x 7 = 418 days on
+#   average. Complete rather than leaky: a leaky 80.5 % from the day of recovery (Hansen et al.
+#   2021, Lancet, measured about 6 months later) reinfected 19 % of the infected within the same
+#   uncontrolled wave, about two weeks after they recovered, while antibody-positive people in
+#   Qatar's first wave were protected by 95.2 % (95% CI 94.1-96.0) without waning for seven months
+#   (Abu-Raddad et al. 2021, EClinicalMedicine 35:100861). With the gamma shape above, 88 % are
+#   still protected after 6 months, 70 % after 40 weeks and 23 % after 80 weeks.
+immunity_protection = 1.0
+immunity_days = 418
 # Source: protection of a past infection against a reinfection that led to hospitalisation or death,
 #   ancestral, alpha and delta variants, 90.2 % (95% UI 69.7-97.5) at 40 weeks (same study).
 severe_protection = 0.902
-# Estimate: no measurement of how people with symptoms of COVID-19 behaved before any rules was
-#   found. The nearest measurement of ordinary behaviour with a confirmed respiratory infection: 40 % of
-#   PCR-confirmed episodes of influenza A in the community (episodes with symptoms) took time off
-#   work, education or childcare (Fragaszy et al. 2018, Influenza Other Respir Viruses, Flu Watch).
-#   Under the legal duty to isolate in England, 42.5 % of people with symptoms did not leave home
-#   (Smith et al. 2021, BMJ). People without symptoms behave as usual.
-stay_home = 0.40
+# Derived (the rule for every illness that is not yet recognised, see influenza.toml): adults of
+#   16 to 64 years took time off work in 31 % of PCR-confirmed episodes of influenza A, children in
+#   56 %, for 3.6 days on average from the onset (Fragaszy et al. 2018, Influenza Other Respir
+#   Viruses 12:171, Table 2), the nearest measurement of ordinary behaviour with a confirmed
+#   respiratory infection (none for COVID-19 before any rules was found). The 3.6 days cover the
+#   1.75 days at full infectiousness: 0.31 then; of the 6.25 waning days they cover
+#   (3.6 - 1.75) / 6.25 = 0.30: 0.31 x 0.30 = 0.09 still at home then (one draw per illness:
+#   those at home in the waning part are among those at home before). People without symptoms
+#   behave as usual.
+stay_home = 0.31
+waning_stay_home = 0.09
 # Estimate: of the ill who still went out, a third skipped leisure (people with influenza-like
 #   illness cut contacts at leisure to 0.06 and at work or school to 0.09 of the usual, Van Kerckhove
-#   et al. 2013, Am J Epidemiol; 1 - 0.06 / 0.09).
+#   et al. 2013, Am J Epidemiol; 1 - 0.06 / 0.09; the full text was not available to the reviewer).
+#   In the waning part with the same coverage as above: 0.33 x 0.30 = 0.10.
 limit_outings = 0.33
+waning_limit_outings = 0.10
 # Not found: a measured variation of susceptibility between people beyond the age effect below.
 susceptibility_cv = 0.0
-# Fitted: the gamma shape of how infectious an infection is; the target is the dispersion of the
-#   number of people one case infects (targets.dispersion_k), to which the town's own variation
-#   (households, contacts, lengths of stays) adds. Measured (16 runs): 0.43 gives 0.36-0.39, 0.8 gives
-#   0.54-0.59; 0.55 gives 0.48.
+# Fitted (to refit in wave 2): the gamma shape of how infectious an infection is; the target is the
+#   dispersion of the number of people one case infects (targets.dispersion_k), to which the town's
+#   own variation (households, contacts, lengths of stays) adds. With the earlier course: 0.43 gave
+#   0.36-0.39, 0.8 gave 0.54-0.59, 0.55 gave 0.437 (8 runs, 30,000 people).
 infectiousness_dispersion = 0.55
 
 [age_effects]
@@ -131,35 +188,64 @@ asymptomatic = [[0, 19, 1.455], [19, 60, 1.0], [60, 120, 0.614]]
 # Derived: from the infection fatality by age of Levin et al. 2020 (see fatality above). The deaths
 #   fall on the infections with symptoms, keeping these rates per infection.
 fatality = [[0, 10, 0.001], [10, 20, 0.002], [20, 30, 0.008], [30, 40, 0.027], [40, 50, 0.086], [50, 60, 0.293], [60, 70, 0.996], [70, 80, 3.056], [80, 85, 7.718], [85, 120, 19.444]]
+# Derived: children of 0-15 years took time off school or childcare in 56 % of the episodes of
+#   influenza A, adults of 16-64 years in 31 % (Fragaszy et al. 2018, Table 2): 56 / 31 = 1.806.
+#   Estimate: people of 65 and older as the adults (Fragaszy's 13 % of the 65+ is time off work
+#   of the few who work, 8 episodes; how retired people change their outings when ill was not
+#   measured).
+stay_home = [[0, 16, 1.806]]
 
 # What the Fitted values were fitted to, and what the disease is checked against (not fitted).
 [targets.household_attack_rate]
-# Meta-analysis of 54 studies to October 2020; 15.5 % (13.2-18.2) for the studies of the wild type
-# to April 2020 (Madewell et al. 2022).
+# Meta-analysis of 54 studies to October 2020: 16.6 % (95 % CI 14.0-19.3), 15.5 % (13.2-18.2) for the
+# studies of the wild type to April 2020 (Madewell et al. 2020); 21.1 % (17.4-24.8) in the meta-analysis
+# of Thompson et al. 2021 (Clin Infect Dis 73:e754). The range is the union of the two overall
+# intervals, 0.140-0.248; the value is Madewell's. First cases of any age, as in the studies.
+# Fitted to 0.245 (`fit`), the upper end of the range: with the shared-air route at home and the
+# sourced emission asleep the model's reproduction number rises with the household attack rate (a
+# ratio of 7.6), and the point 0.245 minimises the largest distance of the two targets to their
+# ranges (see targets.reproduction_number).
 value = 0.166
 low = 0.140
-high = 0.193
+high = 0.248
+fit = 0.245
 source = "Madewell et al. 2020, JAMA Netw Open 3:e2031756"
 [targets.reproduction_number]
 # 15 Western European countries, data to 15 March 2020, lockdown days left out; Czechia was
-# estimated at 2.64 (Majek et al. 2020, medRxiv, a preprint).
+# estimated at 2.64 (Majek et al. 2020, medRxiv, a preprint). Note: derived from the growth below
+# with a generation interval of mean 3.96 days (from the serial interval of Du et al.), so R0, the
+# growth and the generation interval are three checks that cannot all be met with another interval.
 value = 2.2
 low = 1.9
 high = 2.6
 source = "Locatelli et al. 2021, PLoS ONE 16:e0248731"
+[targets.growth_rate]
+# The growth of reported cumulative incidence before any confinement in 15 Western European
+# countries, rho = log(1.32) per day (95% CI log 1.29 - log 1.35), the source of the R0 above; an
+# upper bound of the growth of infections (testing was expanding at the time). Measured in the
+# model between 0.3 % and 3 % of the town infected. A check.
+value = 0.278
+low = 0.255
+high = 0.300
+source = "Locatelli et al. 2021, PLoS ONE 16:e0248731"
 [targets.share_before_symptoms]
-# 46 % of R0 before symptoms (Ferretti et al. 2020); 44 % (30-57) after the correction of He et
-# al. 2020 (Nat Med); 48 % (32-67) in Singapore (Ganyani et al. 2020). He et al. and Ganyani et al.
-# use pairs whose infector had symptoms, and so does the measurement.
+# Of the transmission by people who had symptoms, the share before their onset: 46 % of R0 came
+# from presymptomatic and 38 % from symptomatic people in the model of Ferretti et al. 2020
+# (Science), 46 / 84 = 55 % of the two (the 40 transmission pairs alone: 37 %, 95% CI 27.5-45);
+# 44 % (30-57) after the correction of He et al. 2020 (Nat Med); 48 % (32-67) in Singapore
+# (Ganyani et al. 2020). He et al. and Ganyani et al. use pairs whose infector had symptoms, and so
+# does the measurement.
 value = 0.46
 low = 0.30
 high = 0.57
 source = "Ferretti et al. 2020, Science; He et al. 2020, Nat Med"
 [targets.generation_interval]
-# Mean 5.0 days (SD 1.9; Ferretti et al. 2020); 5.20 days (3.78-6.78) in Singapore (Ganyani).
+# Mean 5.0 days (SD 1.9; Ferretti et al. 2020); 5.20 days (95 % CrI 3.78-6.78) in Singapore and
+# 3.95 days in Tianjin (Ganyani et al. 2020, Euro Surveill); the range is the two means of
+# Ganyani et al.
 value = 5.0
-low = 3.78
-high = 6.78
+low = 3.95
+high = 5.20
 source = "Ferretti et al. 2020; Ganyani et al. 2020, Euro Surveill"
 [targets.dispersion_k]
 value = 0.43
@@ -171,3 +257,33 @@ value = 17.8
 low = 16.9
 high = 19.2
 source = "Verity et al. 2020, Lancet Infect Dis 20:669"
+[targets.visit_attack_rate]
+# The pooled secondary attack rate of contacts at social gatherings with family and friends, 5.9 %
+# (95 % CI 3.8-8.1; Thompson et al. 2021, Table 1; households 21.1 %, casual close contacts 1.2 %).
+# Measured as the share of the people visited by an infectious person (or visiting one) who were
+# infected by that person during visits. A check.
+value = 0.059
+low = 0.038
+high = 0.081
+source = "Thompson et al. 2021, Clin Infect Dis 73:e754"
+[targets.household_share]
+# The share of transmission within households: 41 % of the transmissions reported after an app
+# notification in England and Wales, April 2021 - February 2022 (Ferretti et al. 2024, Nature
+# 626:145; "The long duration of household exposures - 33 h on average - and their closer proximity
+# explain their disproportionate role"); 5-35 % before social distancing in the early epidemics
+# (Curmei et al. 2021, Int J Epidemiol, preprint abstract). The range is the two. A check.
+value = 0.41
+low = 0.05
+high = 0.41
+source = "Ferretti et al. 2024, Nature 626:145; Curmei et al. 2021"
+[targets.hourly_risk]
+# The probability of transmission confirmed by a reported positive test "increased initially
+# linearly with duration of exposure (1.1% per hour)" (Ferretti et al. 2024; alpha, delta and early
+# omicron, a partly immune population; a lower bound of infection, as not every infection was
+# reported). Measured as the chance of infection per hour at weight 1 (within near_distance) next
+# to an average infectious person over the course with symptoms. A check of the order only (Model:
+# the range is a factor of two either way).
+value = 0.011
+low = 0.0055
+high = 0.022
+source = "Ferretti et al. 2024, Nature 626:145"

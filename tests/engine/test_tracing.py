@@ -59,6 +59,7 @@ def test_an_infector_has_symptoms_from_the_onset_whatever_state_follows_it():
             20,
             transmission=0.6,
             community_factor=3.0,
+            near_distance=2.0,  # fully exposed anywhere within the contact distance
             detection_delay_days=0.5,
             detection_coverage=1.0,
             quarantine_infectiousness=1.0,
@@ -71,3 +72,37 @@ def test_an_infector_has_symptoms_from_the_onset_whatever_state_follows_it():
     began = (onset >= 0) & (onset <= record["step"][rows])
     assert (record["infector_symptomatic"][rows] == began).all()
     assert len(rows) > 20 and began.mean() > 0.5, "most infect while isolated, after the onset"
+
+
+def test_an_infection_in_a_vehicle_is_attributed_to_the_transport_and_not_to_the_destination():
+    model = traced_model(initial=0, transmission=0.5)
+    passengers = np.array([0, 1])
+    model.venue[passengers] = model._vehicles.first_venue + np.array([3, 3])
+    settings = model.trace._settings_of(model, passengers, np.array([-1, -1]))
+    assert (settings == model.trace.settings.index("transport")).all()
+    other = np.array([2])
+    assert model.venue[2] < model._vehicles.first_venue
+    assert model.trace._settings_of(model, other, np.array([-1]))[0] != model.trace.settings.index(
+        "transport"
+    )
+
+
+def test_members_of_a_household_count_as_household_only_when_both_are_at_home():
+    model = traced_model(initial=0, transmission=0.5)
+    town = model.town
+    first = next(
+        p for p in range(model.population) if (town.household == town.household[p]).sum() > 1
+    )
+    second = next(
+        p
+        for p in range(model.population)
+        if p != first and town.household[p] == town.household[first]
+    )
+    people, infectors = np.array([first]), np.array([second])
+    home = model.trace.settings.index("household")
+    model._code[:] = 0  # everybody at home today
+    model._detour = (np.zeros(model.population, bool), np.zeros(model.population, bool))
+    model._at_home[:] = True
+    assert model.trace._settings_of(model, people, infectors)[0] == home
+    model._at_home[second] = False  # out together: not the household setting
+    assert model.trace._settings_of(model, people, infectors)[0] != home

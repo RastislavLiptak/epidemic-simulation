@@ -613,6 +613,12 @@ def test_starting_shares_that_add_up_to_more_than_everybody_are_refused():
     Greedy(ONE_DAY, initial_coverage=0.5, vaccine_protection=0.5)
 
 
+def test_a_full_exposure_distance_beyond_the_contact_distance_is_refused():
+    with pytest.raises(ValueError, match="full-exposure distance"):
+        VaccinationModel(ONE_DAY, contact_distance=2.0, near_distance=2.5)
+    VaccinationModel(ONE_DAY, contact_distance=2.0, near_distance=2.0)
+
+
 def test_the_course_states_are_those_between_infection_and_the_end_of_the_illness():
     assert ForkModel.course_states() == {EXPOSED, MILD, INFECTIOUS, HOSPITAL, RECOVERED}
     assert VaccinationModel.course_states() == {INFECTIOUS, RECOVERED}, "not the vaccinated"

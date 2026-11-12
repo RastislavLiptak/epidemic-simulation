@@ -7,24 +7,70 @@
 # are in [targets] below; `python -m epidemic_sandbox.analysis.calibrate influenza` measures them),
 # Estimate = no number found, so a reasoned guess (the reasoning is given), Model = a modelling
 # convention.
+# Known limitations (wave 3): the reproduction number is 1.34 (from the growth 1.32), in its range 1.19-1.37
+# only together with a household attack rate near the lower part of its range (see transmission); the
+# illness ratio of 65+ is 0.395 against 0.40-0.44. No other check fails. The susceptibility of children of 5-17 years is 0.43 of
+# an adult's: the children of the town have many contacts (school), so the age pattern of illness of
+# seasonal influenza (CDC: school children near the adults) needs a lower susceptibility; the value of 2
+# of the 2009 pandemic is not a seasonal property. The epidemic of the town has no season and infects
+# half of the town in 200 days (the age ratios are measured at 14 % infected).
 model = "svepir"
 # Model: a scenario choice, not a property of the disease.
 initial_infected = 15
 enabled = true
 
 [parameters]
-# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
-#   the household attack rate (targets.household_attack_rate). Measured (16 runs, nobody
-#   vaccinated, with the infections without symptoms below): 0.17 gives 41.4 %, 0.18 45.0 %, 0.19
-#   46.6 %.
-transmission = 0.18
+# Fitted: the chance per day of exposure at full weight (close range) of passing the virus, between
+#   the household attack rate (targets.household_attack_rate, 7 days of follow-up, nobody vaccinated;
+#   0.44 counted with daily swabs, which explains the high value) and the reproduction number
+#   (targets.reproduction_number); the age bands below fixed. In the town the two cannot both be at
+#   their centre: the reproduction number is 3.1 times the household attack rate against 2.9 in the
+#   sources (1.28 / 0.44), so the value is the one at which both are inside their ranges (wave 3,
+#   24 runs of 10 first cases in 12,000 people, and 24 runs of 40 index households in 3,000):
+#   0.72 gave R 1.25 but a household rate of 0.38; 0.75 gave 1.37 and 0.417; 0.78 gave 1.34 (from
+#   the growth 1.32) and 0.427 (before vaccination 0.44 is the target); 0.806 (wave 2, earlier
+#   dwelling times of the town) gave 1.51. The room route of influenza has no effect on R within
+#   the noise (room_exposure 0.0013 to 0.0032 gave 1.46 to 1.52), so only transmission was refitted.
+transmission = 0.78
 # Model: the 2 m of the setting's own description of droplet spread; no source measures a distance.
 contact_distance = 2.0
-# Fitted: how much more easily the virus passes between people of different households than
-#   within one per hour within contact distance (household hours include the night); the target is
-#   the reproduction number of seasonal epidemics (targets.reproduction_number). Measured (16 runs in
-#   a town of 30,000, at the transmission above): 2.8 gives 1.33, 3.2 1.42, 3.6 1.56.
-community_factor = 2.6
+# Source: exposure is weighted by the distance of the two people: 1 up to near_distance, falling with
+#   the inverse square of the distance beyond it, 0 beyond contact_distance. The NHS COVID-19 app
+#   scored the proximity of an exposure as "constant below 1 m and decreased as the inverse square of
+#   the distance if greater than 1 m", and its scores were proportional to the probability of
+#   transmission: "Longer exposures at greater distances had risk similar to that of shorter
+#   exposures at closer distances" (Ferretti et al. 2024, Nature 626:145, for SARS-CoV-2; none for
+#   the other droplet diseases was found, so the same distance weighting is used).
+near_distance = 1.0
+# Source for 1: the risk of infection per hour of exposure is the same in every setting; households
+#   dominate transmission through the long duration and the closeness of their exposures, not through
+#   a higher hazard (Ferretti et al. 2024, Nature 626:145: "The long duration of household
+#   exposures - 33 h on average - and their closer proximity explain their disproportionate role").
+#   No source gives another factor for this disease, so none is used.
+community_factor = 1.0
+# Fitted (to the reproduction number): the multiple of the close-range hazard at full weight that
+#   everybody of an indoor venue is exposed to at any distance. Only 0.00316, so the shared air adds
+#   0.00316 x 0.063 = 0.0002 per hour and infectious person (the close-range hazard at the transmission
+#   above is -ln(1 - 0.78) / 24 = 0.063 per hour): inside the range of influenza
+#   quanta, 0.11 quanta/h in a challenge study of H3 (found in a web search; the paper was not opened)
+#   to 15-50 quanta/h in the table of quanta generation rates of the California Department of Public
+#   Health (Appendix 2, "Quanta Generation Rates for Aerosol Transmissible Diseases"; outbreak
+#   back-calculations, Rudnick and Milton 2003 gives 67 for an aeroplane), which at 150 m3 and
+#   1.5 air changes an hour (and inactivation 0.63 per hour) give 0.00017 to 0.075 per hour: at the low end,
+#   because the close-range hazard fitted to the household attack rate is high. The figures are quoted
+#   from search summaries, not from the papers.
+room_exposure = 0.00316
+# Derived: the emission of an infectious person who is asleep relative to awake. The aerosol that people
+#   breathe out is measured by activity (Morawska et al. 2009, as used by Buonanno et al. 2020, Environ
+#   Int 141:105794, Table 1: droplets of 0.8, 1.8, 3.5 and 5.5 um per cm3, breathing 0.084, 0.009, 0.003,
+#   0.002; voiced counting 0.236, 0.068, 0.007, 0.011; whispered counting 0.110, 0.014, 0.004, 0.002).
+#   Weighted by the volume of a droplet (D^3) and the inhalation rate (0.49 m3/h at rest, 0.54 standing),
+#   breathing at rest emits 0.29 x 0.49 against 1.39 x 0.54 for talking: 1 : 5.2. Awake is taken as
+#   talking (Burridge et al. 2021, arXiv 2009.02999: 5 quanta/h talking, 1 quiet), so asleep is 1 / 5.2 =
+#   0.2. Applies to the close range and to the shared air alike, to everybody at home in the sleeping
+#   hours of the dwellings (town.toml). Measured on healthy people, so not specific to the virus
+#   (Estimate for the other diseases of the town: the same physics).
+asleep_emission = 0.2
 # Source: "On average, viral shedding was detected 1 day after inoculation" in volunteer challenge
 #   studies (Carrat et al. 2008, Am J Epidemiol 167:775); an inoculation, not a natural infection.
 latent_days = 1.0
@@ -86,16 +132,26 @@ death_delay_days = 7.7
 #   (a season lasts weeks); the duration is not known.
 immunity_days = 36500
 immunity_protection = 1.0
-# Source: 40 % of PCR-confirmed episodes of influenza A in the community took time off work,
-#   education or childcare (Fragaszy et al. 2018, Influenza Other Respir Viruses, Flu Watch;
-#   episodes with symptoms). People without symptoms behave as usual.
-stay_home = 0.40
+# Source and Derived, the rule for the behaviour of the ill in every disease file (one draw per
+#   illness decides, so those at home in a later state are among those at home earlier): in the
+#   Flu Watch cohort, adults of 16-64 years took time off work in 31 % of PCR-confirmed episodes of
+#   influenza A, children of 0-15 years took time off school or childcare in 56 % (the age effect
+#   below), for 3.6 days on average from the onset (Fragaszy et al. 2018, Influenza Other Respir
+#   Viruses 12:171, Table 2; all ages 40 %). A state of the illness has the share taking time off
+#   times the part of its mean length that the 3.6 days cover: they cover the 2.5 days at full
+#   infectiousness (0.31) and (3.6 - 2.5) / 1.8 = 0.61 of the waning days: 0.31 x 0.61 = 0.19.
+#   People without symptoms behave as usual.
+stay_home = 0.31
+waning_stay_home = 0.19
 # Estimate: of the ill who still went out, a third skipped leisure: people with influenza-like
 #   illness cut contacts at leisure to 0.06 and at work or school to 0.09 of the usual (Van
-#   Kerckhove et al. 2013, Am J Epidemiol, Table 1), so of those who go out only 0.06 / 0.09 = two
+#   Kerckhove et al. 2013, Am J Epidemiol, Table 1, as the earlier version of this file quotes it;
+#   the full text was not available to the reviewer), so of those who go out only 0.06 / 0.09 = two
 #   thirds keep their leisure, and a third skip it. The paper gives ratios of contacts, not shares
-#   of people, so this is an interpretation.
+#   of people, so this is an interpretation. In the waning part with the coverage above: 0.33 x
+#   0.61 = 0.20.
 limit_outings = 0.33
+waning_limit_outings = 0.20
 # Not found: a measured variation of susceptibility between people beyond the age effect below.
 susceptibility_cv = 0.0
 # Source: dispersion k = 0.94 (95% CI 0.59-1.72), "Dispersion parameter for individual variability
@@ -108,11 +164,12 @@ infectiousness_dispersion = 0.94
 #   campaign during the run (the season's coverage below is by the vaccination season).
 vaccination_rate = 0.0
 vaccination_start_day = 0
-# Source: 7.4 % of the population of the Czech Republic was vaccinated against influenza in the
-#   season 2025-26 (insured persons, national health services register; presentation of the
-#   Ministry of Health, October 2026). It is the reference share; the age effect below gives the
-#   share of each age. Limit: the latest season, not that of the town's reference year.
-initial_coverage = 0.074
+# Source: 4.9 % of the population of the Czech Republic was vaccinated against influenza in the
+#   season 2018-19, the season of the town's calendar (vaccinated insured persons relative to the
+#   population by vaccination season, 2010-11 to 2025-26: 3.2 % to 7.4 %; national register of
+#   reimbursed health services; presentation of the Ministry of Health, October 2026). It is the
+#   reference share; the age effect below gives the share of each age.
+initial_coverage = 0.049
 # Source: 61 % (95% CI 57-65) against influenza A(H1N1)pdm09 (Belongia et al. 2016, Lancet Infect
 #   Dis, meta-analysis of 56 test-negative studies: protection against medically attended,
 #   laboratory-confirmed illness, used here as protection against infection); 33 % against
@@ -129,25 +186,44 @@ vaccine_days = 110
 # Derived: deaths per symptomatic illness by age (see fatality) as multiples of the 0.0218 % of the
 #   age group 18-49: 0.3345, 0.2108, 1, 2.969 and 45.29.
 fatality = [[0, 5, 0.3345], [5, 18, 0.2108], [18, 50, 1.0], [50, 65, 2.969], [65, 120, 45.29]]
-# Source: in households of the 2009 pandemic in the United States, contacts aged 18 or younger were
-#   twice as susceptible as adults (Cauchemez et al. 2009, NEJM 361:2619).
-susceptibility = [[0, 19, 2.0], [19, 120, 1.0]]
-# Derived: 25 % of people aged 65 and older were vaccinated in the same season (same source). With
+# Fitted (wave 2; starting value from the 2009 pandemic): the susceptibility by age, fitted to the
+#   illness rates by age of seasons of A(H1N1)pdm09 (targets.illness_ratio_*). The starting value:
+#   in households of the 2009 pandemic in the United States, contacts aged 18 or younger were twice
+#   as susceptible as those of 19-50 (relative susceptibility 1.96, 95% CrI 1.05-3.78), and older
+#   ones less susceptible (Cauchemez et al. 2009, NEJM 361:2619); in a pandemic, when older adults
+#   had antibodies from earlier H1N1 viruses. With it alone the town infected 57 % of the 5-17 and
+#   3 % of the 65+ in a season (illness per person 3.1 and 0.16 times that of all ages, against
+#   1.40 and 0.49 in CDC's estimates for 2018-19), so it is refitted. The ranges are those of CDC's
+#   estimates (18-49 years is the reference, 1), each fitted to its own target (`--fit
+#   age.susceptibility.0-5=illness_ratio_0_4` and so on); the starting values are those of Cauchemez
+#   et al., 2 for children and 1 for adults.
+susceptibility = [[0, 5, 1.7], [5, 18, 0.43], [50, 65, 2.7], [65, 120, 1.3]]
+# Derived: 21 % of people aged 65 and older were vaccinated in the same season (same source). With
 #   19.6 % of the population aged 65 or more (Eurostat 2019, data/reference) the rest, under 65,
-#   is (7.4 - 0.196 x 25) / 0.804 = 3.1 %. As multiples of the 7.4 % above: 0.4205 and 3.3784.
-starting_share = [[0, 65, 0.4205], [65, 120, 3.3784]]
+#   is (4.9 - 0.196 x 21) / 0.804 = 0.98 %. As multiples of the 4.9 % above: 0.199 and 4.286.
+starting_share = [[0, 65, 0.199], [65, 120, 4.286]]
+# Derived: children of 0-15 years took time off school or childcare in 56 % of the episodes of
+#   influenza A, adults of 16-64 years in 31 % (Fragaszy et al. 2018, Table 2): 56 / 31 = 1.806.
+#   Estimate: people of 65 and older as the adults (Fragaszy's 13 % of the 65+ is time off work
+#   of the few who work, 8 episodes; how retired people change their outings when ill was not
+#   measured).
+stay_home = [[0, 16, 1.806]]
 
 # What the Fitted values were fitted to, and what the disease is checked against (not fitted).
 [targets.household_attack_rate]
 # Laboratory-confirmed infection of household contacts with daily symptom assessment and testing,
 # 857 contacts, United States 2023-24 (Biddle et al. 2026, Epidemics 54:100888); the range is the
-# binomial 95 % interval (households cluster, so the real one is wider). Measured with nobody
-# vaccinated; the contacts in the study were partly vaccinated, so the fit is a lower bound.
+# binomial 95 % interval (households cluster, so the real one is wider). "All household members
+# completed 7 days of follow-up with daily nasal swab collection", the index cases being enrolled
+# within 6 days of their symptom onset (the model starts its first cases before the onset, so it
+# gives them more time to infect: a bias upward). Measured with nobody vaccinated; the contacts in
+# the study were partly vaccinated, so the fit is a lower bound.
 value = 0.44
 low = 0.407
 high = 0.473
 source = "Biddle et al. 2026, Epidemics 54:100888"
 with = { initial_coverage = 0.0 }
+days = 7
 [targets.reproduction_number]
 # The median of seasonal epidemics, IQR 1.19-1.37: the growth of real epidemics in populations
 # with their usual immunity, which the town lumps into the susceptible, and vaccination.
@@ -157,8 +233,11 @@ high = 1.37
 source = "Biggerstaff et al. 2014, BMC Infect Dis 14:480"
 [targets.generation_interval]
 # Serial interval of A(H1N1)pdm09 (review); 2.6 days (95 % CrI 2.2-3.5) in US households of 2009
-# (Cauchemez et al. 2009, NEJM); realised household generation time 2.8 days (Chan et al. 2025,
-# Epidemics 50:100815).
+# (Cauchemez et al. 2009, NEJM); realised household generation time 2.8 days (95 % CrI 2.7-3.0)
+# and intrinsic generation time 3.2 days (2.9-3.6) in US households of 2021-23, seasons of
+# A(H3N2) (Chan et al. 2025, Epidemics 50:100815); median serial interval 4 days in US households
+# of 2023-24 (Biddle et al. 2026). The early generations of the town are between the intrinsic and
+# the household-realised time.
 value = 2.8
 low = 2.2
 high = 3.5
@@ -178,3 +257,34 @@ value = 12.0
 low = 5.0
 high = 14.0
 source = "Louie et al. 2009, JAMA 302:1896"
+[targets.illness_ratio_0_4]
+# The illness rate of an age group relative to that of adults of 18-49 years in the two US seasons
+# of the decade in which A(H1N1)pdm09 predominated, 2013-14 and 2015-16 (CDC burden estimates, final
+# tables, illness rate per 100,000: 0-4 years 12,712 and 11,028; 5-17 7,416 and 7,705; 18-49 9,590
+# and 6,668; 50-64 13,713 and 10,505; 65 and older 3,819 and 2,946): the mean of the two seasons'
+# ratios, and the two as the range. CDC's illnesses are model-based multipliers of hospital
+# surveillance. Measured as the symptomatic infections per person of the age group over the whole
+# epidemic relative to those of 18-49 (run the calibration with --days 250). The fit target of the
+# susceptibility by age.
+value = 1.49
+low = 1.33
+high = 1.65
+source = "CDC influenza burden estimates 2013-14 and 2015-16"
+[targets.illness_ratio_5_17]
+# As illness_ratio_0_4: 0.773 and 1.156.
+value = 0.96
+low = 0.77
+high = 1.16
+source = "CDC influenza burden estimates 2013-14 and 2015-16"
+[targets.illness_ratio_50_64]
+# As illness_ratio_0_4: 1.430 and 1.575.
+value = 1.50
+low = 1.43
+high = 1.58
+source = "CDC influenza burden estimates 2013-14 and 2015-16"
+[targets.illness_ratio_65_119]
+# As illness_ratio_0_4: 0.398 and 0.442.
+value = 0.42
+low = 0.40
+high = 0.44
+source = "CDC influenza burden estimates 2013-14 and 2015-16"

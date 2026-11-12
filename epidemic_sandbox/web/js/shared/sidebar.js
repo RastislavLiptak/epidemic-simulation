@@ -121,7 +121,8 @@ export class LiveStatistics {
       return;
     }
     const series = history.series(name, this.selected);
-    card.chart.data.datasets.forEach((dataset, state) => (dataset.data = dailyPoints(series[state])));
+    const days = history.days;
+    card.chart.data.datasets.forEach((dataset, state) => (dataset.data = dailyPoints(series[state], days)));
     card.chart.options.scales.y.max = history.population;
     card.chart.update("none");
   }

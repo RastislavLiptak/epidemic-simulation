@@ -2,13 +2,13 @@ const SUGGESTED_DAYS = 30;
 const MAX_CHART_POINTS = 1000;
 const MIN_BRIGHTNESS_GAP = 40; // of 255: a line closer to the background than this cannot be seen
 
-/** Chart points of a series of daily values; a very long series is thinned to keep charts fast. */
-export function dailyPoints(values) {
+/** Chart points of a series of values on `days`; a very long series is thinned to keep charts fast. */
+export function dailyPoints(values, days) {
   const stride = Math.ceil(values.length / MAX_CHART_POINTS);
   const points = [];
-  for (let day = 0; day < values.length; day += stride) points.push({ x: day, y: values[day] });
+  for (let index = 0; index < values.length; index += stride) points.push({ x: days[index], y: values[index] });
   const last = values.length - 1;
-  if (last % stride !== 0) points.push({ x: last, y: values[last] });
+  if (last % stride !== 0) points.push({ x: days[last], y: values[last] });
   return points;
 }
 
@@ -169,8 +169,9 @@ export function fillRunsChart(chart, history, name) {
     const columns = states.flatMap((entry, index) => (state === "infectious" ? entry.infectious : entry.name === state) ? [index] : []);
     return Array.from({ length: history.dayCount }, (_, day) => columns.reduce((total, column) => total + series[column][day], 0));
   };
+  const days = history.days;
   for (const dataset of chart.data.datasets) {
-    dataset.data = dailyPoints(course(dataset.run === null ? mean : perRun[dataset.run], dataset.state));
+    dataset.data = dailyPoints(course(dataset.run === null ? mean : perRun[dataset.run], dataset.state), days);
   }
   chart.update("none");
 }

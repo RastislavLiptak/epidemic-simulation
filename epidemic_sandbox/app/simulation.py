@@ -161,9 +161,8 @@ class Simulation:
             return {"type": "watching", "run": None}
         run = self._run_index(run)
         self.watched = run
-        shown = min(self.max_displayed, runs.clock.population)
-        ages, roles = runs.people(run, shown)
-        return {"type": "watching", "run": run, "ages": ages, "roles": roles}
+        ids, ages, roles = runs.people(run, self.max_displayed)
+        return {"type": "watching", "run": run, "ids": ids, "ages": ages, "roles": roles}
 
     def _run_steps(self, count: int, time_limit: float | None = None) -> None:
         """Run up to `count` steps; fewer after `time_limit` seconds or at the maximum duration."""
@@ -185,6 +184,8 @@ class Simulation:
         return run
 
     def _finish(self) -> None:
+        if not self.finished:
+            self.runs.finish()  # the hours since the last midnight belong to the results
         self.finished = True
         self.playing = False
 

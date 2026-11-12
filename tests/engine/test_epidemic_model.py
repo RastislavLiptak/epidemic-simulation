@@ -18,7 +18,9 @@ from epidemic_sandbox.world.population import RESIDENT
 pytestmark = pytest.mark.usefixtures("synthetic_in_registry")
 
 SURE = {"transmission": 1.0, "infectious_days": 60.0}
-UNIFORM = {"susceptibility_cv": 0.0}
+# everybody equally susceptible, and exposed fully anywhere within the (default 2 m) contact
+# distance, so that a neighbour 1.5 m away catches the disease at the rate of the definition
+UNIFORM = {"susceptibility_cv": 0.0, "near_distance": 2.0}
 
 
 def three_diseases() -> dict:
@@ -112,11 +114,15 @@ def test_everybody_who_is_done_for_the_day_is_home_at_night_whatever_the_time_re
     model = make_model(three_diseases(), steps_per_day=steps_per_day, arena_size=2000)
     run(model, math.ceil((24 + 4) * steps_per_day / 24) + 1)  # Tuesday morning
     idle = np.array([model.current_code(person) == 0 for person in range(model.population)])
-    resident = model.town.role == RESIDENT  # they move about their home by day
+    # early in the morning everybody at home is in bed; the residents of care homes get up at 6
+    # (the step of a coarse resolution may end at 6) and go to the day room of their ward
+    town = model.town
+    resident = town.role == RESIDENT
     assert (idle & ~resident).sum() > 20
-    assert distances(model, model.town.home_x, model.town.home_y, idle & ~resident).max() < 1e-6
-    inside = distances(model, model.town.home_center_x, model.town.home_center_y, resident)
-    assert (inside <= model.town.home_radius[resident] + 1e-6).all()
+    assert distances(model, town.home_x, town.home_y, idle & ~resident).max() < 1e-6
+    in_bed = distances(model, town.home_x, town.home_y, resident) < 1e-6
+    in_ward = distances(model, town.home_center_x, town.home_center_y, resident)
+    assert (in_bed | (in_ward <= town.home_radius[resident] + 1e-6)).all()
 
 
 def test_only_a_few_go_to_work_at_the_weekend_and_nobody_to_school():
@@ -352,7 +358,9 @@ def test_immunity_that_fades_lets_the_disease_return():
     fading, fading_people = infections(20.0)
     lifelong, lifelong_people = infections(36500.0)
     assert lifelong == lifelong_people, "nobody is infected twice"
-    assert fading > 2 * fading_people, "many are infected again"
+    # measured in the town with rooms, desks and a common room: 1.87 infections per person ever
+    # infected (twice as many with lifelong immunity impossible, and none there)
+    assert fading > 1.5 * fading_people, "many are infected again"
 
 
 def test_town_too_small_for_the_population_is_rejected():
@@ -565,11 +573,16 @@ def isolated_pairs_town():
         dataclasses.replace(activity, probability=np.zeros_like(activity.probability))
         for activity in schedule.activities
     )
+    # the two of a household are always in the same spot of the common room, which is so small
+    # (0.4 m across) that they are closer than the distance up to which the weight is 1, and in the
+    # same bed at night: they are in contact the whole time
+    dwelling = dataclasses.replace(LIBRARY.town.dwelling, common_area=0.5, together_share=1.0)
     return dataclasses.replace(
         LIBRARY.town,
         fingerprint="isolated pairs",
         population=population,
         schedule=dataclasses.replace(schedule, activities=quiet),
+        dwelling=dwelling,
     )
 
 
@@ -627,7 +640,16 @@ def test_a_short_outing_is_not_skipped_when_it_fits_into_one_step():
             )
         )
     assert any(seen), "the person never was at the shop"
-    assert (model.x[person], model.y[person]) == (town.home_x[person], town.home_y[person])
+    # back home: in bed or in the common room of the dwelling
+    in_bed = (model.x[person], model.y[person]) == (town.home_x[person], town.home_y[person])
+    in_common = (
+        np.hypot(
+            model.x[person] - town.home_center_x[person],
+            model.y[person] - town.home_center_y[person],
+        )
+        <= town.home_radius[person] + 1e-6
+    )
+    assert in_bed or in_common
 
 
 def killing_and_harmless():
@@ -703,6 +725,19 @@ def test_a_person_killed_by_two_diseases_in_one_step_dies_once(seed):
     deaths = {name: state.deaths for name, state in model.disease_states.items()}
     assert sum(deaths.values()) == 1, f"one person died, but deaths are {deaths}"
     assert state_of(model, 3, "x") == state_of(model, 3, "y") == "dead"
+    cause = next(index for index, state in enumerate(model.disease_states.values()) if state.deaths)
+    assert model.cause_of_death[3] == cause and model.death_step[3] == 0
+
+
+def test_the_cause_and_the_step_of_each_death_are_noted():
+    model = arranged_model(killing_and_harmless(), {})
+    assert (model.cause_of_death == -1).all() and (model.death_step == -1).all()
+    run(model, 3)
+    about_to_die(model, [1, 2])
+    model.step()
+    assert model.cause_of_death[[1, 2]].tolist() == [0, 0], "the killer, first of the diseases"
+    assert model.death_step[[1, 2]].tolist() == [3, 3]
+    assert (np.delete(model.cause_of_death, [1, 2]) == -1).all()
 
 
 @pytest.mark.parametrize("seed", range(6))

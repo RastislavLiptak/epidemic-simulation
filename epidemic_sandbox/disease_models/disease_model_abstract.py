@@ -25,6 +25,7 @@ AGE_EFFECTS = (
     "starting_share",
     "outside_infections",
     "asymptomatic",
+    "stay_home",
 )
 BRANCH_AGE_EFFECTS = ("branching", "asymptomatic")
 
@@ -57,6 +58,39 @@ CONTACT_DISTANCE = ParameterSpec(
     50.0,
     0.5,
 )
+NEAR_DISTANCE = ParameterSpec(
+    "Full-exposure distance (m)",
+    "Up to this distance an infectious person exposes others fully; farther away, up to the "
+    "contact distance, the exposure falls with the square of the distance. About 1 m for droplets "
+    "and aerosols (the risk model of the NHS COVID-19 app, whose risk scores Ferretti et al. 2024, "
+    "Nature 626:145, found proportional to the chance of transmission); the contact distance "
+    "itself for a disease whose virus fills the air of a room evenly.",
+    1.0,
+    0.1,
+    50.0,
+    0.1,
+)
+ROOM_EXPOSURE = ParameterSpec(
+    "Exposure in the air of a room (per hour, relative to close range)",
+    "How much an infectious person exposes everybody who shares an indoor room with them, "
+    "whatever the distance, relative to a person at the full-exposure distance: what virus in the "
+    "air of a room does (airborne spread, as in Wells-Riley models). It adds to the exposure at "
+    "close range; 0 means no spread beyond the contact distance. Outdoors there is none.",
+    0.0,
+    0.0,
+    1000.0,
+    0.001,
+)
+ASLEEP_EMISSION = ParameterSpec(
+    "Infectiousness while asleep (relative to awake)",
+    "How much an infectious person who is asleep (in bed at night) exposes others compared with "
+    "one who is awake: what a person emits depends on what they do (breathing at rest emits far "
+    "less than speaking; Buonanno et al. 2020, Environ Int 141:105794). 1 means no difference.",
+    1.0,
+    0.0,
+    1.0,
+    0.01,
+)
 DURATION_SHAPE = ParameterSpec(
     "Duration regularity (gamma shape)",
     "How regular the lengths of the disease phases are. 1 gives a very scattered "
@@ -67,21 +101,22 @@ DURATION_SHAPE = ParameterSpec(
     0.5,
 )
 STAY_HOME = ParameterSpec(
-    "Stay-at-home share (infectious)",
-    "Share of people who stay at home for the whole time they are infectious.",
+    "Stay-at-home share (ill)",
+    "Share of the ill who stay at home while they have symptoms, for a person whose stay-at-home "
+    "age effect is 1 (see age effects). A state of the illness can have its own share.",
     0.0,
     0.0,
     1.0,
-    0.05,
+    0.01,
 )
 LIMIT_OUTINGS = ParameterSpec(
-    "Fewer outings share (infectious)",
-    "Share of infectious people who still go to work or school but skip errands, visits and "
-    "leisure.",
+    "Fewer outings share (ill)",
+    "Share of the ill who still go to work or school but skip errands, visits and leisure. A "
+    "state of the illness can have its own share.",
     0.0,
     0.0,
     1.0,
-    0.05,
+    0.01,
 )
 FATALITY = ParameterSpec(
     "Fatality (per infection)",
@@ -207,6 +242,9 @@ ASYMPTOMATIC_PARAMETERS = {
 COMMON_PARAMETERS = {
     "transmission": TRANSMISSION,
     "contact_distance": CONTACT_DISTANCE,
+    "near_distance": NEAR_DISTANCE,
+    "room_exposure": ROOM_EXPOSURE,
+    "asleep_emission": ASLEEP_EMISSION,
     "community_factor": COMMUNITY_FACTOR,
     "duration_shape": DURATION_SHAPE,
     "stay_home": STAY_HOME,
@@ -278,6 +316,13 @@ class DiseaseState:
     immune_before: np.ndarray | None = None  # infected before or started immune (recovered)
     outside: np.ndarray | None = None  # how often the person is infected from outside, by age
     asymptomatic: np.ndarray | None = None  # the "asymptomatic" age effect of the person
+    home_scale: np.ndarray | None = None  # the "stay_home" age effect of the person
+    # how the person reacts to the current infection: they stay at home in a state whose chance
+    # of it (times the age effect) is above `home_draw`, and so on; drawn anew for every infection,
+    # so that a person's decisions in the states of one illness are consistent
+    home_draw: np.ndarray | None = None
+    outings_draw: np.ndarray | None = None
+    hospital_draw: np.ndarray | None = None
     deaths: int = 0
     steps: int = 0
 
@@ -315,9 +360,17 @@ class DiseaseModelAbstract:
 
     - STATE_INFECTIOUSNESS: infectious state -> parameter, the relative infectiousness of that
       state (an infectious state not listed spreads fully).
-    - SYMPTOMATIC_STATES: states in which a person reacts to being ill, staying at home or
-      skipping outings with the chances `stay_home` and `limit_outings` (default: all infectious
-      states). CONFINED_STATES: states in which a person is always at home.
+    - SYMPTOMATIC_STATES: states in which a person has symptoms and reacts to being ill, staying
+      at home or skipping outings with the chances `stay_home` (times the person's "stay_home"
+      age effect, capped at 1) and `limit_outings` (default: all infectious states). BEHAVIOUR:
+      symptomatic state -> (stay-at-home parameter, fewer-outings parameter) for a state with its
+      own chances (an unspecific prodrome before the illness by which a disease is recognised).
+      One draw per infection decides, so a person who stays at home in a state also does in any
+      state with a higher chance. CONFINED_STATES: states in which a person is always at home.
+    - HOSPITAL: symptomatic or confined state -> parameter, the share of the people in that
+      state who are in hospital: away from the town, they meet nobody and infect nobody in it
+      (one draw per infection, as for the behaviour). Those who die of a disease are in hospital
+      while they are dying.
     - PROTECTION: state -> parameter, how well people in that state are protected against
       catching the disease (1 is complete; below 1 they can be infected at a reduced hazard).
     - RATES: spontaneous moves out of a state at a constant hazard per day (see `Rate`), such
@@ -350,6 +403,8 @@ class DiseaseModelAbstract:
     PROTECTION: ClassVar[dict[str, str]] = {}
     RATES: ClassVar[dict[str, Rate]] = {}
     STARTING_SHARES: ClassVar[dict[str, str]] = {}
+    BEHAVIOUR: ClassVar[dict[str, tuple[str, str]]] = {}
+    HOSPITAL: ClassVar[dict[str, str]] = {}
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -428,6 +483,21 @@ class DiseaseModelAbstract:
             known_state(state, "the confined states")
         if symptomatic & cls.CONFINED_STATES:
             raise TypeError(f"{name}: a state cannot be both confined and symptomatic")
+        for state, behaviour in cls.BEHAVIOUR.items():
+            if state not in symptomatic:
+                raise TypeError(f"{name}: only a symptomatic state has a behaviour, not {state}")
+            if len(behaviour) != 2:
+                raise TypeError(f"{name}: the behaviour of {state} needs two parameters")
+            for parameter in behaviour:
+                known_parameter(parameter, f"the behaviour of {state}")
+        for state, parameter in cls.HOSPITAL.items():
+            known_state(state, f"the hospital share of {state}")
+            known_parameter(parameter, f"the hospital share of {state}")
+            if state not in symptomatic | cls.CONFINED_STATES:
+                raise TypeError(
+                    f"{name}: a hospital state is one of the ill (symptomatic) or isolated "
+                    f"(confined), not {state}"
+                )
         for state, parameter in cls.STARTING_SHARES.items():
             known_state(state, f"starting share of {state}")
             known_parameter(parameter, f"starting share of {state}")
@@ -444,6 +514,7 @@ class DiseaseModelAbstract:
             | set(cls.STARTING_SHARES)
             | set(cls.CONFINED_STATES)
             | set(cls.SYMPTOMATIC_STATES or ())
+            | set(cls.HOSPITAL)
         )
         if special:
             raise TypeError(f"{name}: the dying state is handled by the base class only")
@@ -475,6 +546,8 @@ class DiseaseModelAbstract:
         _require_no_cycle(name, {s: targets - {initial} for s, targets in edges.items()})
         used = set(cls.STATE_INFECTIOUSNESS.values()) | set(cls.PROTECTION.values())
         used |= set(cls.STARTING_SHARES.values())
+        used |= {parameter for pair in cls.BEHAVIOUR.values() for parameter in pair}
+        used |= set(cls.HOSPITAL.values())
         used |= {phase.duration_parameter for phase in cls.PHASES.values()}
         used |= {phase.branch_parameter for phase in cls.PHASES.values()} - {None}
         if entry is not None:
@@ -536,11 +609,24 @@ class DiseaseModelAbstract:
         self._require_effective_age_effects()
         if sum(self.parameters[parameter] for parameter in self.STARTING_SHARES.values()) > 1.0:
             raise ValueError("Starting shares add up to more than everybody")
+        if self.parameters["near_distance"] > self.parameters["contact_distance"]:
+            raise ValueError("The full-exposure distance cannot exceed the contact distance")
         self._index = {state: index for index, state in enumerate(self.STATE_COLORS)}
         self._symptomatic = (
             self.INFECTIOUS_STATES if self.SYMPTOMATIC_STATES is None else self.SYMPTOMATIC_STATES
         )
         self._symptomatic_indices = [self._index[state] for state in self._symptomatic]
+        # for each state: the chance of staying at home and of skipping outings (0 outside the
+        # symptomatic states) and the share in hospital
+        self._home_chance = np.zeros(len(self._index))
+        self._outings_chance = np.zeros(len(self._index))
+        for state in self._symptomatic:
+            home, outings = self.BEHAVIOUR.get(state, ("stay_home", "limit_outings"))
+            self._home_chance[self._index[state]] = self.parameters[home]
+            self._outings_chance[self._index[state]] = self.parameters[outings]
+        self._hospital_share = np.zeros(len(self._index))
+        for state, parameter in self.HOSPITAL.items():
+            self._hospital_share[self._index[state]] = self.parameters[parameter]
         self._state_weight = np.array(
             [self._relative_infectiousness(state) for state in self.STATE_COLORS], np.float32
         )
@@ -588,6 +674,10 @@ class DiseaseModelAbstract:
         return self.parameters["contact_distance"]
 
     @property
+    def near_distance(self) -> float:
+        return self.parameters["near_distance"]
+
+    @property
     def dead_index(self) -> int:
         return self._index[DEAD]
 
@@ -606,11 +696,26 @@ class DiseaseModelAbstract:
         table[[self._index[state] for state in states if state in self._index]] = True
         return table
 
+    def admitted(self, disease_state: DiseaseState) -> np.ndarray:
+        """Who is admitted to hospital in a hospital state: their draw for the current infection
+        is below the share of the state."""
+        return disease_state.hospital_draw < self._hospital_share[disease_state.state]
+
     def away_mask(self, disease_state: DiseaseState) -> np.ndarray:
-        """Who is gravely ill with the disease (in hospital) and meets nobody in the town."""
-        if DYING not in self._index:
-            return np.zeros(len(disease_state.state), np.bool_)
-        return disease_state.state == self._index[DYING]
+        """Who is in hospital with the disease (dying of it, or admitted in a hospital state) and
+        meets nobody in the town."""
+        away = self.admitted(disease_state)
+        if DYING in self._index:
+            away |= disease_state.state == self._index[DYING]
+        return away
+
+    def away_states(self) -> list[str]:
+        """The states in which everybody is away from the town: dying, and the hospital states
+        that admit everybody."""
+        states = [DYING] if DYING in self._index else []
+        return states + [
+            state for state in self.HOSPITAL if self._hospital_share[self._index[state]] >= 1.0
+        ]
 
     def create_state(
         self, population: int, initial_cases: np.ndarray, rng, age: np.ndarray
@@ -652,6 +757,10 @@ class DiseaseModelAbstract:
             immune_before=np.zeros(population, np.bool_),
             outside=self._age_multiplier("outside_infections", age).astype(np.float32),
             asymptomatic=asymptomatic.astype(np.float32),
+            home_scale=self._age_multiplier("stay_home", age).astype(np.float32),
+            home_draw=rng.random(population).astype(np.float32),
+            outings_draw=rng.random(population).astype(np.float32),
+            hospital_draw=rng.random(population).astype(np.float32),
         )
         if self.STARTING_SHARES:
             starting = self._age_multiplier("starting_share", age)
@@ -665,15 +774,38 @@ class DiseaseModelAbstract:
                 )
         if RECOVERED in self._index:
             disease_state.immune_before[disease_state.state == self._index[RECOVERED]] = True
-        self._enter(disease_state, initial_cases, self.INITIAL_CASE_STATE, rng)
-        disease_state.ever_infected[initial_cases] = True
-        disease_state.immune_before[initial_cases] = True
-        disease_state.cumulative_infections = len(initial_cases)
+        self.seed_infections(disease_state, initial_cases, rng)
         return disease_state
 
+    def seed_infections(self, disease_state: DiseaseState, people, rng) -> None:
+        """Infect `people` as first cases: they start in INITIAL_CASE_STATE (with symptoms, as
+        the cases that are noticed) with the traits of a new infection."""
+        people = np.asarray(people, np.int64)
+        self._draw_infection_traits(disease_state, people, rng)
+        self._enter(disease_state, people, self.INITIAL_CASE_STATE, rng)
+        disease_state.ever_infected[people] = True
+        disease_state.immune_before[people] = True
+        disease_state.cumulative_infections += len(people)
+
+    def _draw_infection_traits(self, disease_state: DiseaseState, people: np.ndarray, rng) -> None:
+        """What belongs to an infection, not to the person: how much it spreads (the virus they
+        shed, a new gamma draw) and how the person reacts to this illness (new behaviour draws)."""
+        dispersion = self.parameters["infectiousness_dispersion"]
+        if dispersion > 0:
+            disease_state.infectiousness[people] = rng.gamma(
+                dispersion, 1.0 / dispersion, len(people)
+            )
+        for draws in (
+            disease_state.home_draw,
+            disease_state.outings_draw,
+            disease_state.hospital_draw,
+        ):
+            draws[people] = rng.random(len(people))
+
     def infectious_weight(self, disease_state: DiseaseState) -> np.ndarray:
-        """How much each person spreads because of their state: 0 if not infectious, 1 if fully."""
-        return self._state_weight[disease_state.state]
+        """How much each person spreads in the town because of their state: 0 if not infectious
+        (or in hospital), 1 if fully."""
+        return self._state_weight[disease_state.state] * ~self.admitted(disease_state)
 
     def state_infectiousness(self, state: str) -> float:
         """The relative infectiousness of people in `state`: 0 if not infectious, 1 if fully."""
@@ -812,6 +944,9 @@ class DiseaseModelAbstract:
     def apply_infections(self, disease_state: DiseaseState, infected: np.ndarray, rng) -> None:
         """Let the infected enter the disease, except those who died in the meantime."""
         infected = infected[disease_state.state[infected] != self.dead_index]
+        # how much a person spreads and how they behave are properties of an infection, drawn
+        # anew for every infection (before the entry, which applies the behaviour of the state)
+        self._draw_infection_traits(disease_state, infected, rng)
         entry = self.INFECTION_BRANCH
         if entry is None:
             self._enter(disease_state, infected, self.INFECTION_ENTRY_STATE, rng)
@@ -825,13 +960,6 @@ class DiseaseModelAbstract:
         disease_state.ever_infected[infected] = True
         disease_state.immune_before[infected] = True
         disease_state.cumulative_infections += len(infected)
-        # how much a person spreads is a property of an infection (the virus they shed, how they
-        # behave while ill), drawn anew for every infection
-        dispersion = self.parameters["infectiousness_dispersion"]
-        if dispersion > 0:
-            disease_state.infectiousness[infected] = rng.gamma(
-                dispersion, 1.0 / dispersion, len(infected)
-            )
 
     def bury(self, disease_state: DiseaseState, people: np.ndarray) -> None:
         """Mark `people` who died of another disease as dead for this one."""
@@ -866,7 +994,10 @@ class DiseaseModelAbstract:
             mean = math.inf if phase is None else self.parameters[phase.duration_parameter]
             if mean >= LIFELONG_DAYS:
                 mean = math.inf
-            stays = (*stays, (state, mean, float(self._state_weight[self._index[state]])))
+            weight = self._state_weight[self._index[state]] * (
+                1.0 - self._hospital_share[self._index[state]]
+            )
+            stays = (*stays, (state, mean, float(weight)))
             if math.isinf(mean):
                 found.append(Course(probability, stays, state))
                 return
@@ -1052,23 +1183,22 @@ class DiseaseModelAbstract:
         return multiplier
 
     def _enter(self, disease_state: DiseaseState, people: np.ndarray, state: str, rng) -> None:
-        """Put `people` into `state`; a person moving between symptomatic states keeps their
-        decision to stay at home or skip outings, anybody else draws it."""
-        was_symptomatic = np.isin(disease_state.state[people], self._symptomatic_indices)
-        disease_state.state[people] = self._index[state]
-        symptomatic = state in self._symptomatic
-        disease_state.stays_home[people] = state in self.CONFINED_STATES or (
-            symptomatic
-            and np.where(
-                was_symptomatic,
-                disease_state.stays_home[people],
-                rng.random(len(people)) < self.parameters["stay_home"],
-            )
+        """Put `people` into `state`. How they behave there and whether they are in hospital
+        follows from the chances of the state and the person's draws for the current infection:
+        a person stays at home in every state whose chance (times their age effect) exceeds
+        their draw, so the decisions in the states of one illness are consistent."""
+        index = self._index[state]
+        disease_state.state[people] = index
+        home = np.minimum(self._home_chance[index] * disease_state.home_scale[people], 1.0)
+        disease_state.stays_home[people] = (state in self.CONFINED_STATES) | (
+            disease_state.home_draw[people] < home
         )
-        disease_state.limits_outings[people] = symptomatic and np.where(
-            was_symptomatic,
-            disease_state.limits_outings[people],
-            rng.random(len(people)) < self.parameters["limit_outings"],
+        disease_state.limits_outings[people] = (
+            disease_state.outings_draw[people] < self._outings_chance[index]
+        )
+        # an admitted person does not go out either: the children who were to go with them stay
+        disease_state.stays_home[people] |= (
+            disease_state.hospital_draw[people] < self._hospital_share[index]
         )
         phase = self.PHASES.get(state)
         if phase is not None or state == DYING:

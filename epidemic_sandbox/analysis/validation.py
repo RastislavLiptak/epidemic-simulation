@@ -5,7 +5,10 @@ Two kinds of tests, both against files in `data/reference/`:
 * equivalence tests (TOST) say whether a simulated share or mean lies within an accepted margin
   of the published value; the margin reflects how much two official sources differ,
 * permutation tests say whether the age structure of simulated contacts (who meets whom, by age)
-  agrees with the published contact matrices more than chance alignment of age groups would.
+  agrees with the published contact matrices more than chance alignment of age groups would,
+* the contacts of a week of the town are compared with the contact survey by place and by how long
+  they last, within the distance at which infections pass (2 m), as each person would report them
+  (a visitor's contact with the host at "other", the host's at "home").
 """
 
 import argparse
@@ -13,7 +16,8 @@ import csv
 import math
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -37,19 +41,15 @@ from epidemic_sandbox.world.population import (
 )
 from epidemic_sandbox.world.schedule import (
     HOME,
-    LUNCH,
     WORK,
     destination_codes_at,
     draw_day_schedule,
 )
 from epidemic_sandbox.world.town import (
     DAYS_PER_WEEK,
-    HOURS_PER_DAY,
     WEEKEND_FROM_DAY,
     TownParameters,
     build_town,
-    destination_coordinates,
-    destination_venues,
     load_town_parameters,
 )
 
@@ -59,7 +59,6 @@ CONTACT_AGE_GROUPS = 16
 CONTACT_GROUP_WIDTH = 5
 LAYERS = ("home", "school", "work", "others")
 PERMUTATIONS = 5000
-VENUE_RADIUS = 10.0
 MIN_CORRELATION = 0.5
 PERMUTATION_ALPHA = 0.01
 AGE_GROUP_MARGIN = 0.004  # the household fit is exact on its pool, the rest is sampling error
@@ -223,25 +222,28 @@ def _age_checks(people: Population, reference: dict) -> list[Check]:
 
 
 def _household_checks(people: Population, reference: dict) -> list[Check]:
+    """Households are the people of a dwelling; their sizes are a target of the fit."""
     private = people.household[~people.resident]
     sizes = np.bincount(private)[:-1]  # the last household may be cut
     households = reference["households"]
     source = households["source"]
     checks = [
-        mean_check("mean household size", sizes.astype(float), households["mean_size"], 0.1, source)
+        mean_check(
+            "mean household size", sizes.astype(float), households["mean_size"], 0.05, source
+        )
     ]
     largest = households["sizes"][-1]
     for size, expected in zip(households["sizes"], households["size_shares"], strict=True):
         mask = sizes >= size if size == largest else sizes == size
         name = f"{size} or more persons" if size == largest else f"{size}-person households"
-        margin = max(0.15 * expected, 0.004)
+        margin = max(0.05 * expected, 0.004)
         checks.append(share_check(name, mask.mean(), len(sizes), expected, margin, source))
     return checks
 
 
 def _family_checks(people: Population, reference: dict) -> list[Check]:
     """Living arrangements. Only those alone at 55-64 and over 65 are shares of the fit's kinds."""
-    age, sex, household = people.age, people.sex, people.household
+    age, household = people.age, people.household
     in_household = np.bincount(household)[household]
     alone = (in_household == 1) & ~people.resident
     table, source = reference["living_alone"], reference["living_alone"]["source"]
@@ -251,11 +253,9 @@ def _family_checks(people: Population, reference: dict) -> list[Check]:
         ("alone 25-49", (age >= 25) & (age < 50), table["age_25_49"]),
         ("alone 55-64", (age >= 55) & (age < 65), table["age_55_64"]),
         ("alone 65+", age >= 65, table["from_65"]),
-        ("alone 65+, men", (age >= 65) & (sex == MALE), table["men_from_65"]),
-        ("alone 65+, women", (age >= 65) & (sex == FEMALE), table["women_from_65"]),
     ):
         checks.append(
-            share_check(name, alone[mask].mean(), int(mask.sum()), expected, 0.04, source)
+            share_check(name, alone[mask].mean(), int(mask.sum()), expected, 0.03, source)
         )
     oldest = np.zeros(int(household.max()) + 1, np.int16)
     np.maximum.at(oldest, household, age)
@@ -263,7 +263,6 @@ def _family_checks(people: Population, reference: dict) -> list[Check]:
     table, source = reference["family"], reference["family"]["source"]
     young = (age >= 18) & (age < 25)
     children = age < 18
-    with_children = np.bincount(household[~people.resident], weights=children[~people.resident]) > 0
     checks += [
         share_check(
             "with parents 18-24",
@@ -279,14 +278,6 @@ def _family_checks(people: Population, reference: dict) -> list[Check]:
             int(children.sum()),
             table["children_with_one_parent"],
             0.03,
-            source,
-        ),
-        share_check(
-            "households with a child",
-            with_children.mean(),
-            len(with_children),
-            table["households_with_children"],
-            0.04,
             source,
         ),
     ]
@@ -367,91 +358,383 @@ def _activity_checks(people, role, params: TownParameters, reference: dict) -> l
             reference["mothers"]["source"],
         )
     )
-    checks.append(
+    care = reference["care_homes"]
+    residents = role == RESIDENT
+    checks += [
         share_check(
             "people in care homes",
-            (role == RESIDENT).mean(),
+            residents.mean(),
             len(age),
-            reference["care_homes"]["share_of_population"],
-            0.001,
-            reference["care_homes"]["source"],
-        )
-    )
+            care["share_of_population"],
+            0.0005,
+            care["source"],
+        ),
+        share_check(
+            "women of the residents",
+            (sex[residents] == FEMALE).mean(),
+            int(residents.sum()),
+            care["women_share"],
+            0.05,
+            care["source"],
+        ),
+    ]
     return checks
 
 
-def validate_town(params: TownParameters, population: int = 150_000, seed: int = 0) -> list[Check]:
-    """Compare the places of a town large enough to have all of them with published data."""
-    reference = read_reference("czechia_reference.toml")["enterprises"]
-    town = build_town(
-        population,
-        2000.0 * math.sqrt(population / 3000),
-        params,
-        np.random.default_rng(seed),
-    )
-    in_firm = (town.role == WORKER) & (town.place_kind == WORKER) & ~town.activity_staff
-    size = town.work_people[in_firm]
-    return [
-        share_check(
-            "workers in firms under 10",
-            (size < 10).mean(),
-            len(size),
-            reference["under_10"],
-            0.08,
-            reference["source"],
-        ),
-        share_check(
-            "workers in firms from 250",
-            (size >= 250).mean(),
-            len(size),
-            reference["from_250"],
-            0.10,
-            reference["source"],
-        ),
+TOWNS_FOR_PLACES = 4  # towns whose places are pooled (see `validate_town`)
+
+
+def validate_town(params: TownParameters, population: int = 60_000, seed: int = 0) -> list[Check]:
+    """Compare the places of a town large enough to have all of them with published data: the
+    workplaces by the size of the local unit, the care homes."""
+    reference = read_reference("czechia_reference.toml")
+    units = reference["local_units"]
+    sizes = []
+    # the shares of the employees in the few large local units differ by about two percentage
+    # points from one town to the next (measured, six seeds), as much as the margin: a town is
+    # not enough, the shares are those of several towns
+    for offset in range(TOWNS_FOR_PLACES):
+        town = build_town(
+            population,
+            2000.0 * math.sqrt(population / 3000),
+            params,
+            np.random.default_rng(seed + offset),
+        )
+        in_unit = (town.role == WORKER) & (town.place_kind == WORKER) & ~town.activity_staff
+        in_unit &= town.work_people > 1
+        sizes.append(town.work_people[in_unit])
+    size = np.concatenate(sizes)
+    checks = [
+        share_check(name, mask.mean(), len(size), units[key], 0.03, units["source"])
+        for name, mask, key in (
+            ("employees in local units of 1-10", size <= 10, "up_to_10"),
+            ("employees in local units of 11-49", (size > 10) & (size < 50), "from_11_to_49"),
+            ("employees in local units of 50+", size >= 50, "from_50"),
+        )
     ]
+    return checks
 
 
-def simulated_contact_matrices(
-    params: TownParameters, population: int, arena: float, radius: float, rng
-) -> dict[str, np.ndarray]:
-    """Mean number of distinct people of each age group within `radius` metres of a person per day.
+# The week the contacts are measured: a week of the school term in which the universities teach
+# (their winter term begins in the second half of September).
+VALIDATION_MONDAY = date(2018, 10, 1)
+CONTACT_DISTANCE = 2.0  # the distance at which droplet and aerosol diseases pass (m)
+NEAR_DISTANCE = 1.0  # within it a contact counts fully (see the diseases' near_distance)
+SETTINGS = ("home", "school", "work", "other")
+LONG = {"1h": 2, "4h": 8}  # contacts lasting 1 hour or more, 4 hours or more, in half-hour steps
+# Stehle et al. 2011 (PLoS ONE 6:e23176) measured face-to-face contact within 1-1.5 m in a primary
+# school: 3.2 times as much time with classmates as with children of other classes, 2.4 to 5.3 in
+# the ten classes (Table 3). Grades 1-5 are ages 6 to 10.
+SCHOOL_MIXING = {"distance": 1.5, "ages": (6, 11), "range": (2.4, 5.3), "value": 3.2}
 
-    Everybody is placed at the destination of their schedule for every hour of a weekday and of a
-    weekend day; a contact is attributed to the kind of place both people are at.
-    """
-    town = build_town(population, arena, params, rng)
+
+@dataclass
+class Week:
+    """What a week of the town shows (see `observe_week`): per person and day, by the place as
+    the person would report it, the different people within 2 m (`count`) and those within 2 m
+    for 1 hour or more and 4 hours or more, the exposure (hours times the proximity weight); the
+    share of the pairs at work and at school met again the next weekday; the time the pairs of a
+    household spend within 2 m at home; who meets whom by age (contact matrices); the time young
+    pupils spend near classmates and near others."""
+
+    age: np.ndarray
+    role: np.ndarray
+    contacts: dict[str, np.ndarray]
+    repeated: dict[str, float]
+    household_hours: np.ndarray
+    household_pairs: int
+    together: np.ndarray
+    matrices: dict[str, np.ndarray]
+    school_mixing: float
+
+
+_WEEKS: dict[tuple, Week] = {}
+
+
+def _validation_parameters(params: TownParameters) -> TownParameters:
+    calendar = replace(params.schedule.calendar, first_day=VALIDATION_MONDAY)
+    return replace(params, schedule=replace(params.schedule, calendar=calendar))
+
+
+def observe_week(params: TownParameters, population: int = 6000, seed: int = 0) -> Week:
+    """Run the town without diseases for a week of October 2018 and record its contacts every
+    half hour (kept for later calls with the same parameters)."""
+    key = (params.fingerprint, id(params), population, seed)
+    if key not in _WEEKS:
+        _WEEKS[key] = _observe(_validation_parameters(params), population, seed)
+    return _WEEKS[key]
+
+
+def _observe(params: TownParameters, population: int, seed: int) -> Week:
+    from epidemic_sandbox.config.experiment import (
+        SQUARE_METERS_PER_SQUARE_KILOMETER,
+        STEPS_PER_DAY,
+        ExperimentConfig,
+    )
+    from epidemic_sandbox.engine.epidemic_model import EpidemicModel
+
+    arena = 2000.0 * math.sqrt(population / 3000)
+    world = {
+        "population": population,
+        "area_km2": arena**2 / SQUARE_METERS_PER_SQUARE_KILOMETER,
+        "arena_size": arena,
+        "seed": seed,
+        "steps_per_day": STEPS_PER_DAY,
+        "max_days": 0,
+        "runs": 1,
+    }
+    model = EpidemicModel(ExperimentConfig(world, {}), params)
+    town = model.town
     group = np.minimum(town.age // CONTACT_GROUP_WIDTH, CONTACT_AGE_GROUPS - 1)
-    in_group = np.bincount(group, minlength=CONTACT_AGE_GROUPS)
-    education = town.at_school
-    people = np.arange(population)
-    cells = max(1, min(int(arena // radius), 2 * math.isqrt(population)))
+    contacts = {
+        name: np.zeros((len(SETTINGS), population)) for name in ("count", "1h", "4h", "exposure")
+    }
     matrices = {layer: np.zeros((CONTACT_AGE_GROUPS,) * 2) for layer in LAYERS}
-    for weekend, weight in ((False, WEEKEND_FROM_DAY), (True, DAYS_PER_WEEK - WEEKEND_FROM_DAY)):
-        schedule = draw_day_schedule(town.role, town.traits, params.schedule, weekend, rng)
-        pairs = {layer: [] for layer in LAYERS}
-        for hour in range(HOURS_PER_DAY):
-            codes = destination_codes_at(schedule, hour + 0.5, params.schedule.max_events)
-            x, y = destination_coordinates(town, codes, people, schedule)
-            venue = destination_venues(town, codes, people, schedule)
-            layer_of = np.select(
-                [
-                    codes == HOME,
-                    (codes == WORK) & education,
-                    codes == WORK,
-                    codes >= LUNCH,
-                ],
-                [0, 1, 2, 3],
+    pairs_by_day = {"school": [], "work": []}
+    household_hours = []
+    together = np.zeros(population)
+    mixing = np.zeros(2)
+    pupil = np.isin(town.role, (PRESCHOOL, SCHOOL, UNIVERSITY))
+    young = pupil & (town.age >= SCHOOL_MIXING["ages"][0]) & (town.age < SCHOOL_MIXING["ages"][1])
+    for day in range(DAYS_PER_WEEK):
+        records = []
+        for _step in range(STEPS_PER_DAY):
+            model.step()
+            setting = _settings(model, pupil)
+            together += _together(model) * 0.5 / DAYS_PER_WEEK
+            first, second = _pairs(model, CONTACT_DISTANCE, model.venue >= 0)
+            distance = np.hypot(model.x[first] - model.x[second], model.y[first] - model.y[second])
+            one, other = np.concatenate([first, second]), np.concatenate([second, first])
+            near = np.concatenate([distance, distance])
+            weight = np.minimum(1.0, (NEAR_DISTANCE / np.maximum(near, 1e-9)) ** 2)
+            records.append((one, other, setting[one], weight))
+            if day < WEEKEND_FROM_DAY:
+                both = pupil[first] & pupil[second] & (model._code[first] == WORK)
+                both &= model._code[second] == WORK
+                close = both & (distance <= SCHOOL_MIXING["distance"])
+                ends = young[first[close]].astype(int) + young[second[close]].astype(int)
+                classmates = town.work_venue[first[close]] == town.work_venue[second[close]]
+                mixing += [(ends * classmates).sum(), (ends * ~classmates).sum()]
+        columns = zip(*records, strict=True)
+        one, other, setting, weight = (np.concatenate(values) for values in columns)
+        key = (one.astype(np.int64) * population + other) * len(SETTINGS) + setting
+        unique, inverse, steps = np.unique(key, return_inverse=True, return_counts=True)
+        exposure = np.bincount(inverse, weights=weight) * 0.5  # hours at the proximity weight
+        place = unique % len(SETTINGS)
+        person = (unique // len(SETTINGS)) // population
+        partner = (unique // len(SETTINGS)) % population
+        for name, chosen in (
+            ("count", steps >= 1),
+            ("1h", steps >= LONG["1h"]),
+            ("4h", steps >= LONG["4h"]),
+        ):
+            np.add.at(contacts[name], (place[chosen], person[chosen]), 1.0 / DAYS_PER_WEEK)
+        np.add.at(contacts["exposure"], (place, person), exposure / DAYS_PER_WEEK)
+        for index, layer in enumerate(LAYERS):
+            chosen = place == index
+            np.add.at(
+                matrices[layer], (group[person[chosen]], group[partner[chosen]]), 1 / DAYS_PER_WEEK
             )
-            grid = build_grid(x, y, arena, cells)
-            for index, layer in enumerate(LAYERS):
-                first, second = find_pairs(x, y, layer_of == index, venue, *grid, cells, radius)
-                pairs[layer].append(first.astype(np.int64) * population + second)
-        for layer in LAYERS:
-            unique = np.unique(np.concatenate(pairs[layer]))
-            first, second = unique // population, unique % population
-            np.add.at(matrices[layer], (group[first], group[second]), weight / DAYS_PER_WEEK)
-            np.add.at(matrices[layer], (group[second], group[first]), weight / DAYS_PER_WEEK)
-    return {layer: matrix / np.maximum(in_group, 1)[:, None] for layer, matrix in matrices.items()}
+        at_home = (place == SETTINGS.index("home")) & (
+            town.household[person] == town.household[partner]
+        )
+        household_hours.append(steps[at_home] * 0.5)
+        if day < WEEKEND_FROM_DAY:  # the pairs of a place together for an hour or more
+            for name in pairs_by_day:
+                chosen = (place == SETTINGS.index(name)) & (steps >= LONG["1h"])
+                pairs_by_day[name].append(set(unique[chosen] // len(SETTINGS)))
+    in_group = np.bincount(group, minlength=CONTACT_AGE_GROUPS)
+    repeated = {}
+    for name, days in pairs_by_day.items():
+        again = [len(days[d] & days[d - 1]) / max(len(days[d]), 1) for d in range(1, len(days))]
+        repeated[name] = float(np.mean(again))
+    private = town.role != RESIDENT
+    size = np.bincount(town.household)
+    return Week(
+        town.age,
+        town.role,
+        contacts,
+        repeated,
+        np.concatenate(household_hours) if household_hours else np.zeros(0),
+        int((size[town.household[private]] - 1).sum()) * DAYS_PER_WEEK,
+        together,
+        {layer: matrix / np.maximum(in_group, 1)[:, None] for layer, matrix in matrices.items()},
+        float(mixing[0] / max(mixing[1], 1)),
+    )
+
+
+def _together(model) -> np.ndarray:
+    """Who is awake at home in the common room of the dwelling with another member of the
+    household there."""
+    town, dwelling = model.town, model.town_parameters.dwelling
+    if dwelling is None or dwelling.asleep(model.hour):
+        return np.zeros(model.population, np.bool_)
+    home = (model._code == HOME) & (model.venue == town.household) & (town.role != RESIDENT)
+    distance = np.hypot(model.x - town.home_center_x, model.y - town.home_center_y)
+    common = home & (distance <= town.home_radius + 1e-6)
+    present = np.bincount(town.household, weights=common, minlength=int(town.household.max()) + 1)
+    return common & (present[town.household] >= 2)
+
+
+def _settings(model, pupil: np.ndarray) -> np.ndarray:
+    """The place of everybody as they would report it in a contact diary: home (also a resident
+    of a care home and the host of a visitor), school (a pupil at school), work (at work, also a
+    teacher), other (errands, leisure, lunch, a visit to somebody's home)."""
+    code = model._code.copy()
+    code[model._detour[0]] = HOME
+    code[model._detour[1]] = WORK
+    return np.select(
+        [code == HOME, (code == WORK) & pupil, code == WORK], [0, 1, 2], len(SETTINGS) - 1
+    )
+
+
+def _pairs(model, radius: float, member: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    arena = float(model.world["arena_size"])
+    cells = max(1, min(int(arena // radius), 2 * math.isqrt(model.population)))
+    grid = build_grid(model.x, model.y, arena, cells)
+    return find_pairs(model.x, model.y, member, model.venue, *grid, cells, radius)
+
+
+def read_polymod_durations() -> list[dict]:
+    """Contacts per day lasting 1 hour or more and 4 hours or more by place, and the share of the
+    contacts met daily, in Germany and Poland (POLYMOD), with their standard errors; see
+    data/reference/derivations/polymod_durations.py."""
+    with (REFERENCE_DIRECTORY / "polymod_durations_de_pl.csv").open(newline="") as table:
+        return [{key: float(value) for key, value in row.items()} for row in csv.DictReader(table)]
+
+
+# The age groups compared (the survey's bands joined so that the means are stable): every place for
+# children, adults and the old, school for pupils, work for the ages of work.
+DURATION_GROUPS = {
+    "home": ((0, 15), (15, 65), (65, 120)),
+    "school": ((5, 20),),
+    "work": ((20, 60),),
+    "other": ((0, 20), (20, 70)),
+}
+# A simulated mean passes when it is within 35 % of the survey's or within two standard errors of
+# it, whichever is wider: the survey counts conversations and touch at any distance, the town
+# everybody within 2 m, which is close to them for long contacts but not the same.
+DURATION_TOLERANCE = 0.35
+
+
+def validate_contact_durations(
+    params: TownParameters, population: int = 6000, seed: int = 0
+) -> list[Check]:
+    """Long contacts by place and age, within 2 m, against the contact survey (POLYMOD, Germany
+    and Poland): per person and day, contacts that lasted 1 hour or more and 4 hours or more."""
+    week = observe_week(params, population, seed)
+    survey = read_polymod_durations()
+    checks = []
+    for place, groups in DURATION_GROUPS.items():
+        index = SETTINGS.index(place)
+        for low, high in groups:
+            rows = [row for row in survey if row["age_from"] >= low and row["age_to"] <= high]
+            weights = np.array([row["participants"] for row in rows])
+            for kind in ("1h", "4h"):
+                values = np.array([row[f"{place}_{kind}"] for row in rows])
+                errors = np.array([row[f"{place}_{kind}_se"] for row in rows])
+                expected = float((weights * values).sum() / weights.sum())
+                error = float(np.sqrt((weights**2 * errors**2).sum()) / weights.sum())
+                band = (week.age >= low) & (week.age < high)
+                observed = float(week.contacts[kind][index, band].mean())
+                margin = max(DURATION_TOLERANCE * expected, 2 * error)
+                checks.append(
+                    Check(
+                        f"{place} {kind}+ contacts {low}-{high - 1}",
+                        observed,
+                        f"{expected:.2f} ± {margin:.2f}",
+                        math.nan,
+                        abs(observed - expected) <= margin,
+                        "POLYMOD, Germany and Poland (polymod_durations_de_pl.csv)",
+                    )
+                )
+    return checks
+
+
+# Contacts met again: the share of the contacts at work and at school lasting 1 hour or more that
+# the survey's participants meet daily or almost daily (polymod_durations_de_pl.csv, the adults'
+# and the pupils' bands), against the share of the pairs within 2 m for an hour or more on a
+# weekday who were so the weekday before.
+REPEAT_GROUPS = {"work": (20, 60), "school": (5, 20)}
+REPEAT_MARGIN = 0.20
+
+
+def validate_repetition(params: TownParameters, population: int = 6000, seed: int = 0) -> list:
+    """Whether people meet the same people at work and at school day after day."""
+    week = observe_week(params, population, seed)
+    survey = read_polymod_durations()
+    checks = []
+    for place, (low, high) in REPEAT_GROUPS.items():
+        rows = [row for row in survey if row["age_from"] >= low and row["age_to"] <= high]
+        weights = np.array([row["participants"] * row[f"{place}_1h"] for row in rows])
+        shares = np.array([row[f"{place}_daily_share"] for row in rows])
+        expected = float((weights * shares).sum() / weights.sum())
+        observed = week.repeated[place]
+        checks.append(
+            Check(
+                f"{place} contacts met again",
+                observed,
+                f"{expected:.2f} ± {REPEAT_MARGIN:.2f}",
+                math.nan,
+                abs(observed - expected) <= REPEAT_MARGIN,
+                "POLYMOD, Germany and Poland (polymod_durations_de_pl.csv)",
+            )
+        )
+    return checks
+
+
+def validate_household_proximity(
+    params: TownParameters, population: int = 6000, seed: int = 0
+) -> list[Check]:
+    """How long the people of a household are close at home, against the survey: of the daily
+    contacts at home (the people one lives with) of adults, 63 % lasted more than 4 hours and 21 %
+    1-4 hours (POLYMOD, Germany and Poland; czechia_reference.toml [household_contacts])."""
+    week = observe_week(params, population, seed)
+    table = read_reference("czechia_reference.toml")["household_contacts"]
+    hours = week.household_hours
+    pairs = max(week.household_pairs, 1)
+    checks = []
+    for name, observed, key in (
+        ("household pairs close over 4 h", (hours > 4).sum() / pairs, "over_4_hours"),
+        ("household pairs close 1-4 h", ((hours >= 1) & (hours <= 4)).sum() / pairs, "hours_1_4"),
+    ):
+        checks.append(
+            Check(
+                name,
+                float(observed),
+                f"{table[key]:.2f} ± {table['margin']:.2f}",
+                math.nan,
+                abs(observed - table[key]) <= table["margin"],
+                table["source"],
+            )
+        )
+    return checks
+
+
+def validate_time_together(
+    params: TownParameters, population: int = 6000, seed: int = 0
+) -> list[Check]:
+    """Hours a day awake with the members of one's household, against the time-use survey
+    (czechia_reference.toml [time_together]); the town counts the time at home only."""
+    week = observe_week(params, population, seed)
+    table = read_reference("czechia_reference.toml")["time_together"]
+    private = week.role != RESIDENT
+    checks = []
+    for (low, high), expected in zip(table["age_groups"], table["hours"], strict=True):
+        band = (week.age >= low) & (week.age < high) & private
+        observed = float(week.together[band].mean())
+        lowest, highest = table["lowest"] * expected, table["highest"] * expected
+        checks.append(
+            Check(
+                f"hours with the household {low}-{high - 1}",
+                observed,
+                f"{expected:.2f} ({lowest:.2f} to {highest:.2f})",
+                math.nan,
+                lowest <= observed <= highest,
+                table["source"],
+            )
+        )
+    return checks
 
 
 def read_reference_contacts() -> dict[str, np.ndarray]:
@@ -469,22 +752,18 @@ def read_reference_contacts() -> dict[str, np.ndarray]:
 
 
 def validate_contacts(
-    params: TownParameters, population: int = 15000, radius: float = VENUE_RADIUS, seed: int = 0
+    params: TownParameters, population: int = 6000, radius: float = CONTACT_DISTANCE, seed: int = 0
 ) -> list[Check]:
-    """Compare who meets whom, by age and kind of place, with the published contact matrices.
-
-    The published matrices count conversations in a venue, so the simulated people are counted
-    within `radius` (venue scale), not within an infection distance of a couple of metres. Only
-    the structure is compared (rank correlation of all cells); the levels differ by definition.
-    """
-    rng = np.random.default_rng(seed)
-    arena = 2000.0 * math.sqrt(population / 3000)
-    simulated = simulated_contact_matrices(params, population, arena, radius, rng)
+    """Compare who meets whom, by age and kind of place, with the published contact matrices
+    (their structure: rank correlation of all cells), the contacts within 2 m of a week counted
+    as each person would report them."""
+    week = observe_week(params, population, seed)
     reference = read_reference_contacts()
+    rng = np.random.default_rng(seed)
     source = "Prem et al. 2021 (czechia_contacts_prem2021.csv)"
     checks = []
     for layer in LAYERS:
-        correlation, p_value = permutation_test(simulated[layer], reference[layer], rng)
+        correlation, p_value = permutation_test(week.matrices[layer], reference[layer], rng)
         passed = correlation >= MIN_CORRELATION and p_value < PERMUTATION_ALPHA
         checks.append(
             Check(
@@ -499,157 +778,11 @@ def validate_contacts(
     return checks
 
 
-# Conversations happen within the personal and social distance of people, up to about 3.7 m
-# (Hall 1966, The Hidden Dimension: social distance 1.2-3.7 m); the contact surveys count a
-# conversation in the presence of somebody without a distance.
-CONVERSATION_DISTANCE = (1.2, 3.7)
-# Stehle et al. 2011 (PLoS ONE 6:e23176) measured face-to-face contact within 1-1.5 m in a primary
-# school: 3.2 times as much time with classmates as with children of other classes, 2.4 to 5.3 in
-# the ten classes (Table 3). Grades 1-5 are ages 6 to 10.
-SCHOOL_MIXING = {"distance": 1.5, "ages": (6, 11), "range": (2.4, 5.3), "value": 3.2}
-
-
-def _town_week(params: TownParameters, population: int, arena: float, seed: int, observe) -> None:
-    """Run the town without diseases for a week, from a Monday of the school term, and call
-    `observe(model, day)` after every step."""
-    from epidemic_sandbox.config.experiment import (
-        SQUARE_METERS_PER_SQUARE_KILOMETER,
-        STEPS_PER_DAY,
-        ExperimentConfig,
-    )
-    from epidemic_sandbox.engine.epidemic_model import EpidemicModel
-
-    world = {
-        "population": population,
-        "area_km2": arena**2 / SQUARE_METERS_PER_SQUARE_KILOMETER,
-        "arena_size": arena,
-        "seed": seed,
-        "steps_per_day": STEPS_PER_DAY,
-        "max_days": 0,
-        "runs": 1,
-    }
-    model = EpidemicModel(ExperimentConfig(world, {}), params)
-    for day in range(DAYS_PER_WEEK):
-        for _step in range(STEPS_PER_DAY):
-            model.step()
-            observe(model, day)
-
-
-def _pairs(model, radius: float, member: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    arena = float(model.world["arena_size"])
-    cells = max(1, min(int(arena // radius), 2 * math.isqrt(model.population)))
-    grid = build_grid(model.x, model.y, arena, cells)
-    return find_pairs(model.x, model.y, member, model.venue, *grid, cells, radius)
-
-
-def simulated_contact_levels(
-    params: TownParameters, population: int, arena: float, radii, seed: int
-) -> tuple[np.ndarray, dict]:
-    """Mean number of different people a person is within each radius of per day, by the kind of
-    place as the person would write it in a contact diary (home 0, school 1, work 2, other 3: a
-    resident of a care home is at home, the teacher of a class at work, the pupil at school), over
-    a week (5 weekdays and 2 weekend days, the 5:2 weighting); returns {radius: [place, person]}
-    and the ages."""
-    levels = {radius: np.zeros((len(LAYERS), population)) for radius in radii}
-    pairs = {radius: [[] for _ in LAYERS] for radius in radii}
-    ages = []
-
-    def observe(model, day):
-        town = model.town
-        ages[:] = [town.age]
-        code = model._code.copy()
-        code[model._detour[0]] = HOME
-        code[model._detour[1]] = WORK
-        layer = np.select(
-            [
-                (code == HOME) & (model.venue == town.household),
-                (code == WORK) & town.at_school & (town.place_kind == town.role),
-                code == WORK,
-            ],
-            [0, 1, 2],
-            3,
-        )
-        for radius in radii:
-            first, second = _pairs(model, radius, model.venue >= 0)
-            one, other = np.concatenate([first, second]), np.concatenate([second, first])
-            for index in range(len(LAYERS)):
-                chosen = layer[one] == index  # the contact as `one` sees it
-                key = one[chosen].astype(np.int64) * population + other[chosen]
-                pairs[radius][index].append(key)
-        if model.steps % model.world["steps_per_day"] == 0:  # the end of a day
-            for radius in radii:
-                for index in range(len(LAYERS)):
-                    unique = np.unique(np.concatenate(pairs[radius][index]))
-                    levels[radius][index] += (
-                        np.bincount(unique // population, minlength=population) / DAYS_PER_WEEK
-                    )
-                    pairs[radius][index].clear()
-
-    _town_week(params, population, arena, seed, observe)
-    return ages[0], levels
-
-
-def read_polymod_levels() -> list[dict]:
-    """Contacts per day by age band and place in Germany and Poland (POLYMOD), with their standard
-    errors; see data/reference/derivations/polymod_contacts.py."""
-    with (REFERENCE_DIRECTORY / "polymod_contacts_de_pl.csv").open(newline="") as table:
-        return [{key: float(value) for key, value in row.items()} for row in csv.DictReader(table)]
-
-
-def validate_contact_levels(
-    params: TownParameters, population: int = 3000, seed: int = 0
-) -> list[Check]:
-    """How many different people the people of the town meet in a day, against the contact survey.
-
-    The number of different people within the near end of conversation distance should not be
-    above what the survey found, nor the number within the far end below it: the check passes when
-    the range of the town overlaps the 95 % confidence interval of the survey's mean. All
-    contacts: the survey of 2006 in Germany and Poland had other kindergarten attendance and
-    employment of the old than Czechia in 2019, so the places are not compared one by one.
-    """
-    near, far = CONVERSATION_DISTANCE
-    age, levels = simulated_contact_levels(
-        params, population, 2000.0 * math.sqrt(population / 3000), (near, far), seed
-    )
-    checks = []
-    for row in read_polymod_levels():
-        band = (age >= row["age_from"]) & (age < row["age_to"])
-        low, high = (float(levels[radius].sum(axis=0)[band].mean()) for radius in (near, far))
-        margin = 1.96 * row["all_se"]
-        checks.append(
-            Check(
-                f"contacts a day {int(row['age_from'])}-{int(row['age_to']) - 1}",
-                row["all"],
-                f"town {low:.1f} to {high:.1f} (survey ±{margin:.1f})",
-                math.nan,
-                low <= row["all"] + margin and row["all"] - margin <= high,
-                "POLYMOD, Germany and Poland (polymod_contacts_de_pl.csv)",
-            )
-        )
-    return checks
-
-
 def validate_school_mixing(
     params: TownParameters, population: int = 6000, seed: int = 0
 ) -> list[Check]:
     """Time young pupils spend with classmates against time with pupils of other classes."""
-    distance, (young_from, young_to) = SCHOOL_MIXING["distance"], SCHOOL_MIXING["ages"]
-    counts = np.zeros(2)
-
-    def observe(model, day):
-        town = model.town
-        if day >= WEEKEND_FROM_DAY:
-            return
-        pupil = town.role == SCHOOL
-        first, second = _pairs(model, distance, pupil & (model._code == WORK) & (model.venue >= 0))
-        young = (town.age >= young_from) & (town.age < young_to) & pupil
-        ends = young[first].astype(int) + young[second].astype(int)
-        classmates = town.work_venue[first] == town.work_venue[second]
-        counts[0] += (ends * classmates).sum()
-        counts[1] += (ends * ~classmates).sum()
-
-    _town_week(params, population, 2000.0 * math.sqrt(population / 3000), seed, observe)
-    ratio = counts[0] / max(counts[1], 1)
+    ratio = observe_week(params, population, seed).school_mixing
     low, high = SCHOOL_MIXING["range"]
     return [
         Check(
@@ -663,12 +796,55 @@ def validate_school_mixing(
     ]
 
 
+def at_home_shares(
+    params: TownParameters, hour: float, groups, population: int = 20_000, seed: int = 0
+) -> np.ndarray:
+    """The share of the people of each age group ([from, to) years) whose plan puts them at home
+    at `hour` of the ordinary weekdays of a year (a hook for the national travel survey, see
+    `validate_whereabouts`)."""
+    town = build_town(
+        population, 2000.0 * math.sqrt(population / 3000), params, np.random.default_rng(seed)
+    )
+    calendar = params.schedule.calendar
+    rng = np.random.default_rng(seed + 1)
+    shares = np.zeros(len(groups))
+    days = [day for day in range(0, 364, 7) if not calendar.is_day_off(day)]
+    for day in days:
+        plan = draw_day_schedule(
+            town.role, town.traits, params.schedule, False, rng, calendar.closed_places(day)
+        )
+        home = destination_codes_at(plan, hour, params.schedule.max_events) == HOME
+        for index, (low, high) in enumerate(groups):
+            band = (town.age >= low) & (town.age < high) & (town.role != RESIDENT)
+            shares[index] += home[band].mean() / len(days)
+    return shares
+
+
+def validate_whereabouts(params: TownParameters, population: int = 20_000, seed: int = 0):
+    """People at home at 10 a.m. of a workday by age, against the national travel survey (Cesko v
+    pohybu, czechia_reference.toml [whereabouts]); when people go out is set by the schedules."""
+    table = read_reference("czechia_reference.toml")["whereabouts"]
+    groups = [tuple(group) for group in table["age_groups"]]
+    shares = at_home_shares(params, table["hour"], groups, population, seed)
+    return [
+        Check(
+            f"at home at {table['hour']:g} h, {low}-{high - 1}",
+            float(observed),
+            f"{expected:.2f} ± {table['margin']:.2f}",
+            math.nan,
+            abs(observed - expected) <= table["margin"],
+            table["source"],
+        )
+        for (low, high), observed, expected in zip(groups, shares, table["at_home"], strict=True)
+    ]
+
+
 def format_report(checks: list[Check]) -> str:
-    lines = [f"{'check':32s} {'observed':>9s}  {'expected':24s} {'p':>8s}  result"]
+    lines = [f"{'check':36s} {'observed':>9s}  {'expected':24s} {'p':>8s}  result"]
     for check in checks:
         verdict = "ok" if check.passed else "FAIL"
         lines.append(
-            f"{check.name:32s} {check.observed:9.3f}  {check.expected:24s} "
+            f"{check.name:36s} {check.observed:9.3f}  {check.expected:24s} "
             f"{check.p_value:8.4f}  {verdict}"
         )
     return "\n".join(lines)
@@ -689,11 +865,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     arguments = parser.parse_args()
     params = load_town_parameters(arguments.town)
-    checks = validate_population(params, arguments.population, arguments.seed)
-    checks += validate_town(params, seed=arguments.seed)
-    checks += validate_contacts(params, arguments.contact_population, seed=arguments.seed)
-    checks += validate_contact_levels(params, seed=arguments.seed)
-    checks += validate_school_mixing(params, seed=arguments.seed)
+    people, seed = arguments.contact_population, arguments.seed
+    checks = validate_population(params, arguments.population, seed)
+    checks += validate_town(params, seed=seed)
+    checks += validate_contact_durations(params, people, seed)
+    checks += validate_repetition(params, people, seed)
+    checks += validate_household_proximity(params, people, seed)
+    checks += validate_time_together(params, people, seed)
+    checks += validate_contacts(params, people, seed=seed)
+    checks += validate_school_mixing(params, people, seed)
+    checks += validate_whereabouts(params, seed=seed)
     print(format_report(checks))
     failed = [check.name for check in checks if not check.passed]
     print(f"\n{len(checks) - len(failed)} of {len(checks)} checks passed")

@@ -9,21 +9,48 @@
 # published target (the targets are in [targets] below; `python -m epidemic_sandbox.analysis.calibrate
 # strep_throat` measures them), Estimate = no number found, so a reasoned guess (the reasoning is
 # given), Model = a modelling convention.
+# Known limitations: the household, age and incidence checks were met in wave 2 and are not
+# affected by the change of the reproduction-number estimator of wave 3 (strep is measured in a long run). The disease persists in a closed town of 10,000 only
+# through the infections from outside (one run of three lost it in 300 days); the reproduction number
+# of the town is 0.65, so the age pattern is that of the outside infections, as fitted.
 model = "seis"
 # Model: a scenario choice, not a property of the disease.
 initial_infected = 30
 
 [parameters]
-# Fitted: the per-day chance of passing the bacteria to a member of the own household; the target is
-#   the household attack rate (targets.household_attack_rate). Measured (16 runs of 28 days, within
-#   households only, the first cases not counted again): 0.039 gives 11.2 %, 0.043 13.3 %.
-transmission = 0.042
+# Fitted: the chance per day of exposure at full weight of passing the bacteria; the target is the
+#   household attack rate (targets.household_attack_rate, first cases of 3-12 years as in the study;
+#   `calibrate strep_throat --fit transmission=household_attack_rate`). Measured at 0.3361: 0.138
+#   (24 runs of 40 index households in a town of 3,000, standard error 0.02) and 0.1275 in the check
+#   run of wave 2.
+transmission = 0.3361
 # Model: the 2 m of the setting's own description of droplet spread; no source measures a distance.
 contact_distance = 2.0
-# Model: as easily between people of different households as within one, per hour within contact
-#   distance; no measurement of the spread of strep throat outside families (such as a reproduction
-#   number) was found, and most of the infections come from the reservoir (below).
+# Source: exposure is weighted by the distance of the two people: 1 up to near_distance, falling with
+#   the inverse square of the distance beyond it, 0 beyond contact_distance. The NHS COVID-19 app
+#   scored the proximity of an exposure as "constant below 1 m and decreased as the inverse square of
+#   the distance if greater than 1 m", and its scores were proportional to the probability of
+#   transmission: "Longer exposures at greater distances had risk similar to that of shorter
+#   exposures at closer distances" (Ferretti et al. 2024, Nature 626:145, for SARS-CoV-2; none for
+#   the other droplet diseases was found, so the same distance weighting is used).
+near_distance = 1.0
+# Source for 1: the risk of infection per hour of exposure is the same in every setting; households
+#   dominate transmission through the long duration and the closeness of their exposures, not through
+#   a higher hazard (Ferretti et al. 2024, Nature 626:145: "The long duration of household
+#   exposures - 33 h on average - and their closer proximity explain their disproportionate role").
+#   No source gives another factor for this disease, so none is used.
 community_factor = 1.0
+# Derived: the emission of an infectious person who is asleep relative to awake. The aerosol that people
+#   breathe out is measured by activity (Morawska et al. 2009, as used by Buonanno et al. 2020, Environ
+#   Int 141:105794, Table 1: droplets of 0.8, 1.8, 3.5 and 5.5 um per cm3, breathing 0.084, 0.009, 0.003,
+#   0.002; voiced counting 0.236, 0.068, 0.007, 0.011; whispered counting 0.110, 0.014, 0.004, 0.002).
+#   Weighted by the volume of a droplet (D^3) and the inhalation rate (0.49 m3/h at rest, 0.54 standing),
+#   breathing at rest emits 0.29 x 0.49 against 1.39 x 0.54 for talking: 1 : 5.2. Awake is taken as
+#   talking (Burridge et al. 2021, arXiv 2009.02999: 5 quanta/h talking, 1 quiet), so asleep is 1 / 5.2 =
+#   0.2. Applies to the close range and to the shared air alike, to everybody at home in the sleeping
+#   hours of the dwellings (town.toml). Measured on healthy people, so not specific to the virus
+#   (Estimate for the other diseases of the town: the same physics).
+asleep_emission = 0.2
 # Source: the incubation period of group A strep pharyngitis is about 2 to 5 days (CDC clinical
 #   guidance, page dated 18 November 2025), taken as 3.5 days, the middle. No source separates the
 #   latent period from the incubation period.
@@ -45,15 +72,18 @@ duration_shape = 5.4
 #   of a current infection (Ou et al. 2022, Arthritis Res Ther). Left at 0. (Deaths of invasive group
 #   A strep disease, mostly of skin and blood infections, are another disease.)
 fatality = 0.0
-# Derived: every infection in the model is a pharyngitis with symptoms; people with a confirmed
-#   respiratory infection took time off work, education or childcare in 40 % of PCR-confirmed
-#   episodes of influenza A (Fragaszy et al. 2018, Influenza Other Respir Viruses; children 56 %),
-#   the nearest measurement found; CDC advises staying home until the fever is gone and 12-24 hours
-#   after the first antibiotic dose.
-stay_home = 0.40
+# Derived (the rule for every illness that is not yet recognised, see influenza.toml): every
+#   infection in the model is a pharyngitis with symptoms (fever, sore throat). Adults of 16-64
+#   years took time off work in 31 % of PCR-confirmed episodes of influenza A, children in 56 % (the
+#   age effect below), for 3.6 days on average from the onset (Fragaszy et al. 2018, Influenza Other
+#   Respir Viruses 12:171, Table 2), the nearest measurement found, which cover 3.6 / 4 = 0.9 of the
+#   infectious days: 0.31 x 0.9 = 0.28. CDC advises staying home until the fever is gone and 12-24
+#   hours after the first antibiotic dose.
+stay_home = 0.28
 # Estimate: of those who still went out, a third skipped leisure (Van Kerckhove et al. 2013, Am J
-#   Epidemiol: contacts at leisure 0.06 and at work or school 0.09 of the usual; 1 - 0.06 / 0.09).
-limit_outings = 0.33
+#   Epidemiol: contacts at leisure 0.06 and at work or school 0.09 of the usual; 1 - 0.06 / 0.09; the
+#   full text was not available to the reviewer), with the coverage above: 0.33 x 0.9 = 0.30.
+limit_outings = 0.30
 # Model: the healthy carriers (see the top) are left out of the course in the town: as a share of
 #   the infections without symptoms that lasts their 10.8 weeks, they made the pharyngitis of
 #   household members 1.9-2.5 % against the 13 % measured (targets.household_attack_rate), and no
@@ -61,29 +91,42 @@ limit_outings = 0.33
 #   outside (below).
 asymptomatic_share = 0.0
 # Fitted: infections with pharyngitis per year of a child of 3 to 15 years that come from the
-#   reservoir of carriers and from outside the town (other ages: the age effect below); the target
-#   is the rate of pharyngitis of school children (targets.case_incidence_5_12). Measured (8 runs of
-#   300 days, 30,000 people, the first 100 left out): 0.076 with the age effect below gives 10.2 per
-#   100 child-years and 4.2 per 100 adults of 30-49. Without them strep throat dies out in the town
-#   within weeks: its spread from the ill alone does not keep it (the town's reproduction number is
-#   0.36; 88 % of the infections in the town are within households).
-outside_infections = 0.076
+#   reservoir of carriers and from outside the town (other ages: the age effect below); the target is
+#   the rate of pharyngitis of school children (targets.case_incidence_5_12, `--fit
+#   outside_infections=case_incidence_5_12 --fit age.outside_infections.16-120=case_incidence_30_49`).
+#   Measured at 0.0335 with the adults' factor 0.48 (3 runs of 300 days, 10,000 people, the first 100
+#   days left out; wave 2): 11.2 per 100 child-years (target 10.5) and 4.4 per 100 adults of 30-49
+#   (target 4). In the old town 0.076 was needed and 68 % of the infections came from outside; with
+#   the seats and classes of the new town the spread within the town carries more (school 25 %,
+#   household 53 % of the early infections). Without outside infections strep throat dies out in the
+#   town within weeks; with them one of three runs of 300 days lost it (persisting share 0.67).
+outside_infections = 0.0335
 # Not found: a measured variation of susceptibility between people. Left at 0: any other number
 #   would be an invention.
 susceptibility_cv = 0.0
 # Model: no dispersion of the number of people one case infects is published for strep throat; none
 #   is added to the variation the town itself makes.
 infectiousness_dispersion = 0.0
+# Model, an argued choice that is a property of the SEIS model, not a parameter (no protection
+#   after an infection, unlike the cold): the type-specific
+#   antibodies appear only weeks after an infection, and most cases are treated with an antibiotic
+#   within days (see infectious_days), so a person can catch the same type again from the family; in
+#   the earlier town 45 % of the reinfections came within 2 weeks of the previous one. No
+#   measurement of the time to a new pharyngitis after one was found; to be revisited when found.
 
 [age_effects]
-# Fitted: how often people of each age are infected from the reservoir, relative to children of 3
+# Fitted (adults' factor 0.48): how often people of each age are infected from the reservoir, relative to children of 3
 #   to 15 years. Group A strep pharyngitis "is most common among children 5 through 15 years of
 #   age" and "rare in children younger than 3 years of age" (CDC clinical guidance); adults had 5
 #   culture-positive and 3 serologically confirmed episodes per 100 person-years against 13 and 8
 #   of children 5-12 (Danchin et al. 2007), so the adults' factor is fitted to their rate
-#   (targets.case_incidence_30_49): measured (as above), 0.3 gives 3.5 and 0.4 4.3 per 100. Estimate:
+#   (targets.case_incidence_30_49): measured (as above), 0.275 gave 2.9, 0.30 3.8-4.0 and 0.48 4.4 per 100 at the fitted outside rate. Estimate:
 #   children under 3 as adults (no rate found, "rare"); older adults as the parents (no rate found).
-outside_infections = [[0, 3, 0.37], [3, 16, 1.0], [16, 120, 0.37]]
+outside_infections = [[0, 3, 0.37], [3, 16, 1.0], [16, 120, 0.48]]
+# Derived: children of 0-15 years took time off school or childcare in 56 % of the episodes of
+#   influenza A, adults of 16-64 years in 31 % (Fragaszy et al. 2018, Table 2): 56 / 31 = 1.806.
+#   Estimate: people of 65 and older as the adults.
+stay_home = [[0, 16, 1.806]]
 
 # What the Fitted values were fitted to, and what the disease is checked against (not fitted).
 [targets.household_attack_rate]
@@ -94,6 +137,8 @@ value = 0.13
 low = 0.09
 high = 0.18
 source = "Danchin et al. 2007, Pediatrics 120:950"
+# the families had at least one child of 3-12 years, the first cases mostly such children
+index_ages = [3, 13]
 [targets.case_incidence_5_12]
 # 13 swab-positive episodes of group A strep pharyngitis per 100 child-years at 5-12 years, 8 when
 # also confirmed by serology (Melbourne families). A positive swab also counts carriers whose sore

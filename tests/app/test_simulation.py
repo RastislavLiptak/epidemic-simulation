@@ -196,7 +196,16 @@ def test_watching_describes_the_people_shown_and_stops_with_none():
     simulation.max_displayed = 50
     reply = simulation.handle({"type": "watch", "run": 0})
     assert reply["type"] == "watching" and len(reply["ages"]) == len(reply["roles"]) == 50
-    assert len(simulation.frame()["runs"][0]["x"]) == 50
+    ids = reply["ids"]
+    assert len(ids) == len(set(ids)) == 50 and ids == sorted(ids)
+    assert max(ids) > 100, "a sample of the town, not its first people"
+    model = simulation.models[0]
+    assert reply["ages"] == model.town.age[ids].tolist()
+    frame = simulation.frame()["runs"][0]
+    assert len(frame["x"]) == 50
+    arena = model.world["arena_size"]
+    assert frame["x"] == np.round(model.x[ids] / arena, 4).tolist()
+    assert frame["states"]["a"] == model.disease_states["a"].state[ids].tolist()
     assert simulation.handle({"type": "watch", "run": None}) == {"type": "watching", "run": None}
     assert "x" not in simulation.frame()["runs"][0]
 
@@ -312,6 +321,28 @@ def test_finish_ends_the_experiment_whenever_the_user_says_so():
     simulation.handle({"type": "finish"})
     assert simulation.finished and not simulation.playing
     assert simulation.frame()["finished"]
+
+
+def test_the_hours_after_the_last_midnight_are_recorded_when_the_experiment_is_finished():
+    simulation = started_simulation()
+    simulation.handle({"type": "step_day"})
+    simulation._run_steps(TEST_STEPS_PER_DAY // 4)
+    model = simulation.models[0]
+    model.disease_states["a"].cumulative_infections += 5  # what the last hours changed
+    simulation.handle({"type": "finish"})
+    simulation.handle({"type": "finish"})
+    days = [record["day"] for record in model.history]
+    assert days == [0, 1, 1.25]
+    assert model.history[-1]["cumulative_infections"]["a"] == (
+        model.disease_states["a"].cumulative_infections
+    )
+
+
+def test_an_experiment_finished_at_midnight_records_no_extra_day():
+    simulation = started_simulation()
+    simulation.handle({"type": "step_day"})
+    simulation.handle({"type": "finish"})
+    assert [record["day"] for record in simulation.models[0].history] == [0, 1]
 
 
 @pytest.mark.parametrize("command", [{"type": "play"}, {"type": "step_day"}])

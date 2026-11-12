@@ -106,6 +106,18 @@ def locate_in_cdf(draws, cdf):
     return found
 
 
+@njit(cache=True, nogil=True, inline="always")
+def proximity(distance_squared, near):
+    """How much an infectious person at this squared distance exposes someone, relative to one
+    within `near`: fully up to `near`, then falling with the square of the distance (the risk model
+    of the NHS COVID-19 app, "inverse square of the distance if greater than 1 m", whose scores
+    Ferretti et al. 2024, Nature 626:145, found proportional to the chance of transmission)."""
+    near_squared = near * near
+    if distance_squared <= near_squared:
+        return 1.0
+    return near_squared / distance_squared
+
+
 @sized_kernel
 def count_infectious_contacts_by_household(
     x,
@@ -113,21 +125,26 @@ def count_infectious_contacts_by_household(
     susceptible,
     infectiousness,
     household,
+    at_home,
     venue,
     cell_of,
     cell_start,
     people_by_cell,
     cells_per_side,
     radius,
+    near,
 ):
-    """For every susceptible person, the infectiousness summed over people within `radius` in the
-    same venue, and the part of it that comes from members of their own household.
+    """For every susceptible person, the exposure to the infectious people within `radius` in the
+    same venue, and the part of it that comes from members of their own household at home.
 
-    `infectiousness` is 0 for people who cannot infect and 1 for a fully infectious person.
+    The exposure is the infectiousness of each infectious person (0 for people who cannot infect,
+    1 for a fully infectious person) weighted by `proximity` with the full distance `near`.
     `venue` is the place everybody is in (see `town.Venues`); people in different venues (behind
-    a wall) and people on the way (venue -1) are not in contact. Cells must be at least `radius`
-    wide so that the 3x3 neighbourhood contains every contact.
-    Returns (all contacts, contacts in the own household).
+    a wall) and people on the way (venue -1) are not in contact. `at_home` marks who is in their
+    own home: members of one household count as such only there (out together they meet like
+    anybody else). Cells must be at least `radius` wide so that the 3x3 neighbourhood contains
+    every contact.
+    Returns (all exposure, exposure from the own household at home).
     """
     count = x.shape[0]
     cell_has_infectious = np.zeros(cells_per_side * cells_per_side, np.bool_)
@@ -135,7 +152,7 @@ def count_infectious_contacts_by_household(
         if infectiousness[person] > 0:
             cell_has_infectious[cell_of[person]] = True
     contacts = np.zeros(count, np.float32)
-    at_home = np.zeros(count, np.float32)
+    at_home_exposure = np.zeros(count, np.float32)
     radius_squared = radius * radius
     for person in prange(count):
         if not susceptible[person] or venue[person] < 0:
@@ -154,13 +171,19 @@ def count_infectious_contacts_by_household(
                     if infectiousness[other] > 0 and venue[other] == venue[person]:
                         delta_x = x[other] - x[person]
                         delta_y = y[other] - y[person]
-                        if delta_x * delta_x + delta_y * delta_y <= radius_squared:
-                            found += infectiousness[other]
-                            if household[other] == household[person]:
-                                own += infectiousness[other]
+                        squared = delta_x * delta_x + delta_y * delta_y
+                        if squared <= radius_squared:
+                            weight = np.float32(infectiousness[other] * proximity(squared, near))
+                            found += weight
+                            if (
+                                household[other] == household[person]
+                                and at_home[person]
+                                and at_home[other]
+                            ):
+                                own += weight
         contacts[person] = found
-        at_home[person] = own
-    return contacts, at_home
+        at_home_exposure[person] = own
+    return contacts, at_home_exposure
 
 
 def count_infectious_contacts(
@@ -176,18 +199,21 @@ def count_infectious_contacts(
     radius,
 ):
     """For every susceptible person, the infectiousness summed over people within `radius` in
-    the same venue."""
+    the same venue, whatever their distance within it."""
+    count = x.shape[0]
     return count_infectious_contacts_by_household(
         x,
         y,
         susceptible,
         infectiousness,
-        np.zeros(x.shape[0], np.int32),
+        np.zeros(count, np.int32),
+        np.zeros(count, np.bool_),
         venue,
         cell_of,
         cell_start,
         people_by_cell,
         cells_per_side,
+        radius,
         radius,
     )[0]
 
@@ -238,6 +264,7 @@ def pick_infectors(
     draws,
     infectiousness,
     household,
+    at_home,
     venue,
     community,
     cell_of,
@@ -245,10 +272,12 @@ def pick_infectors(
     people_by_cell,
     cells_per_side,
     radius,
+    near,
 ):
     """For each person in `targets`, one of the infectious people in contact with them, chosen
     with the chance of their share of the exposure (see `count_infectious_contacts_by_household`:
-    the own household at weight 1, everybody else at `community`); -1 if there is none.
+    weighted by proximity, the own household at home at weight 1, everybody else at `community`);
+    -1 if there is none.
 
     `draws` are uniform random numbers, one per target, so that the kernel stays deterministic.
     """
@@ -272,10 +301,15 @@ def pick_infectors(
                             continue
                         delta_x = x[other] - x[person]
                         delta_y = y[other] - y[person]
-                        if delta_x * delta_x + delta_y * delta_y > radius_squared:
+                        squared = delta_x * delta_x + delta_y * delta_y
+                        if squared > radius_squared:
                             continue
-                        weight = infectiousness[other]
-                        if household[other] != household[person]:
+                        weight = infectiousness[other] * proximity(squared, near)
+                        if not (
+                            household[other] == household[person]
+                            and at_home[person]
+                            and at_home[other]
+                        ):
                             weight *= community
                         total += weight
                         if sweep == 1 and infectors[index] < 0 and total >= threshold:

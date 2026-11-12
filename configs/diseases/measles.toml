@@ -1,80 +1,141 @@
-# Measles (SEPIR): after the latent period comes the prodrome (fever, cough, running nose), in which
-# a person already spreads but nobody knows it is measles, then the rash. Tags: Source = a published number, Derived = computed from sources, Fitted = tuned
-# in the model to a published target (the targets are in [targets] below; `python -m
-# epidemic_sandbox.analysis.calibrate measles` measures them), Estimate = no number found, so a reasoned guess
-# (the reasoning is given), Model = a modelling convention.
-model = "sepir"
+# Measles (prodrome model): after the latent period comes a short time in which a person spreads
+# the virus but feels well, then the prodrome (fever, cough, running nose, conjunctivitis), in which
+# a person is ill but nobody knows it is measles, then the rash, by which measles is recognised; in
+# the Czech Republic a recognised case is isolated in hospital by law. Tags: Source = a published
+# number, Derived = computed from sources, Fitted = tuned in the model to a published target (the
+# targets are in [targets] below; `python -m epidemic_sandbox.analysis.calibrate measles` measures
+# them), Estimate = no number found, so a reasoned guess (the reasoning is given), Model = a
+# modelling convention.
+# Known limitations: the Wells-Riley emission behind room_exposure is quoted from the abstract of
+# Riley et al. 1978 and from tables that cite it, the paper itself was not opened; the town has no
+# measles-specific school or care-home behaviour (a case is isolated in hospital by law once the rash
+# is recognised; whether practice follows the law is not verified); the household attack rate of the
+# town (0.98 among people with no immunity) is above the 86 % of the study but at the "90 % or more"
+# of the CDC (see the target).
+model = "prodrome"
 # Model: a scenario choice, not a property of the disease.
 initial_infected = 15
 enabled = true
 
 [parameters]
-# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
-#   the household attack rate among susceptible people (targets.household_attack_rate). Measured (16
-#   runs, nobody immune, transmission within households only): 0.15 gives 73 %, 0.20 83 %, 0.25 89 %.
-transmission = 0.23
-# Estimate: no source gives a distance. Measles spreads through the air of rooms (CDC: in closed
-#   areas for up to 2 hours), so everybody in the same room is exposed, which is much more than the
-#   2 m of droplets. Contacts count only inside one venue (a home, a class, a workplace, a shop), so
-#   10 m stands for the room: it takes in the whole of a class or a small workplace.
-contact_distance = 10.0
-# Fitted: how much more easily the virus passes between people of different households than within
-#   one per hour within contact distance (household hours include the night); the target is the
-#   basic reproduction number (targets.reproduction_number). Measured (32 runs in a town of 30,000,
-#   nobody immune, from one case): 8 gives 12.4, 12 gives 16.3-17.1, 18 gives 18.9-19.5; 10.5 gives
-#   14.4 (16 runs from 10 cases).
-community_factor = 10.5
-# Derived: the rash appears 14 days after exposure on average (range 7-21) and a patient is
+# Fitted: the chance per day of exposure at full weight (close range) of passing the virus; fitted
+#   to the household attack rate (targets.household_attack_rate) with room_exposure set (below). The
+#   household attack rate saturates (every housemate shares the air of the dwelling for days), so it
+#   only bounds the close-range hazard from below. Measured at 0.0212 and room_exposure 150: 0.98 (4
+#   runs of 40 index households in a town of 3,000, nobody immune, nobody admitted; wave 3).
+transmission = 0.0212
+# Model: the 2 m of close range, as for the other diseases of the town. The spread through the air of a
+#   whole room, which measles is known for (CDC: in closed areas for up to 2 hours), is the room
+#   route (room_exposure below), not a long contact distance.
+contact_distance = 2.0
+# Source: the weighting of the distance of the NHS app (see covid19.toml): 1 up to 1 m, falling with
+#   the inverse square of the distance beyond it.
+near_distance = 1.0
+# Source for 1: the risk of infection per hour of exposure is the same in every setting; households
+#   dominate transmission through the long duration and the closeness of their exposures, not through
+#   a higher hazard (Ferretti et al. 2024, Nature 626:145: "The long duration of household
+#   exposures - 33 h on average - and their closer proximity explain their disproportionate role").
+#   No source gives another factor for this disease, so none is used.
+community_factor = 1.0
+# Fitted to the reproduction number (targets.reproduction_number, 12-18) and checked against a source:
+#   everybody of an indoor venue is exposed to every infectious person of the venue at any distance
+#   with this multiple of the close-range hazard at full weight. Measles is the airborne disease:
+#   Riley, Murphy and Riley 1978 (Am J Epidemiol 107:421, airborne spread of measles in a suburban
+#   elementary school, 1974) found that the index case, a girl in the second grade who infected 28
+#   others in 14 classrooms, produced "approximately 93 units of airborne infection (quanta) per
+#   minute" (5,580 a hour) and that the secondary cases were "less infectious by an order of
+#   magnitude"; 570 quanta a hour is quoted for an average measles case (same paper, in the table of
+#   quanta generation rates of the California Department of Public Health and in BMC Infect Dis 2010;
+#   abstract and tables read through search summaries, the paper itself not opened). With the same
+#   assumptions as for COVID-19 (breathing 0.48 m3/h, 150 m3, 1.5 air changes an hour, inactivation
+#   0.63 per hour; Estimate for measles) the Wells-Riley hazard is 0.86 per hour and infectious person
+#   for 570 quanta (0.086 for 57, 8.4 for 5,580). The fit puts 150 x 0.0214 / 24 = 0.13 per hour (the hazard -ln(1 - 0.0212) = 0.0214 per day),
+#   about 90 quanta an hour: between the secondary cases (57) and the average (570). Measured (nobody
+#   immune, nobody admitted, from one first case, 12 runs of 30,000 people, wave 3): room_exposure 100
+#   gives R0 10.4 (6 runs, standard error 1.2), 150 gives 16.7 (1.6), 240 gives 20.3 (1.9).
+room_exposure = 150.0
+# Derived: the emission of an infectious person who is asleep relative to awake. The aerosol that people
+#   breathe out is measured by activity (Morawska et al. 2009, as used by Buonanno et al. 2020, Environ
+#   Int 141:105794, Table 1: droplets of 0.8, 1.8, 3.5 and 5.5 um per cm3, breathing 0.084, 0.009, 0.003,
+#   0.002; voiced counting 0.236, 0.068, 0.007, 0.011; whispered counting 0.110, 0.014, 0.004, 0.002).
+#   Weighted by the volume of a droplet (D^3) and the inhalation rate (0.49 m3/h at rest, 0.54 standing),
+#   breathing at rest emits 0.29 x 0.49 against 1.39 x 0.54 for talking: 1 : 5.2. Awake is taken as
+#   talking (Burridge et al. 2021, arXiv 2009.02999: 5 quanta/h talking, 1 quiet), so asleep is 1 / 5.2 =
+#   0.2. Applies to the close range and to the shared air alike, to everybody at home in the sleeping
+#   hours of the dwellings (town.toml). Measured on healthy people, so not specific to the virus
+#   (Estimate for the other diseases of the town: the same physics).
+asleep_emission = 0.2
+# Derived: the rash appears 14 days after exposure on average (range 7-21) and measles is
 #   transmissible from 4 days before the rash (CDC Pink Book, chapter 13): 14 - 4 = 10 days.
 latent_days = 10.0
-# Source: transmissible from 4 days before the rash (CDC Pink Book, chapter 13; the same in the WHO
-#   fact sheet). These are the days of the prodrome, before anybody knows it is measles, so people
-#   go about their days.
-presymptomatic_days = 4.0
+# Derived: "The incubation period of measles from exposure to prodrome averages 11 to 12 days"
+#   (CDC Pink Book, chapter 13), the middle 11.5, and transmission begins at 10 days (above):
+#   1.5 days of spreading without symptoms; "contagious from 1 to 2 days before onset of
+#   symptoms" says the AAP Red Book.
+presymptomatic_days = 1.5
+# Derived: the prodrome begins 11.5 days after exposure (above) and the rash 14 days after it:
+#   2.5 days ("The prodrome lasts 2 to 4 days, with a range of 1 to 7 days", CDC Pink Book).
+prodrome_days = 2.5
 # Derived: transmissible until 4 days after the rash appears (CDC Pink Book), split into the first
 #   two days at full infectiousness and two waning ones (Model: no source splits them).
 infectious_days = 2.0
 waning_days = 2.0
 # Estimate: the infectiousness of the last two days after the rash relative to the first.
 #   Infectiousness rises markedly around the onset of symptoms (Klinkenberg and Nishiura 2011, J
-#   Theor Biol) and falls after the rash, by how much is not measured: the middle, 0.5. It hardly
-#   matters: from 0.3 to 0.8 the serial interval stays at 11.7-11.8 days and the reproduction number
-#   changes by 5 % (32 runs each), because most people stay at home after the rash.
+#   Theor Biol) and falls after the rash, by how much is not measured: the middle, 0.5. Those
+#   days are spent in hospital in the default scenario (admission_share), so it matters only for
+#   the targets measured without admission.
 waning_infectiousness = 0.5
-# Model: the same daily infectiousness in the prodrome as at the rash: transmissible from 4 days
-#   before to 4 days after the rash (CDC) with no profile given.
+# Model: the same daily infectiousness before the prodrome, in it and at the rash: transmissible
+#   from 4 days before to 4 days after the rash (CDC) with no profile given.
 presymptomatic_infectiousness = 1.0
-# Derived: the measles incubation period has a dispersion of 1.23 (Lessler et al. 2009, Lancet
-#   Infect Dis, log-normal fit), a coefficient of variation of 0.21; a gamma distribution of
-#   the same variation has the shape 1 / 0.21^2 = 23.
-duration_shape = 23.0
+prodrome_infectiousness = 1.0
+# Derived (the rule for every illness that is not yet recognised, as in influenza.toml): adults of
+#   16 to 64 years took time off work in 31 % of PCR-confirmed episodes of influenza A, children in
+#   56 %, for 3.6 days on average (Fragaszy et al. 2018, Influenza Other Respir Viruses 12:171,
+#   Table 2); the prodrome (fever up to 39-40 C, CDC Pink Book) lasts 2.5 days, shorter than the
+#   time off, so the whole share stays at home in it. The children's share is the age effect
+#   below.
+prodrome_stay_home = 0.31
+# Estimate: of the ill who still go out, a third skip leisure (people ill with influenza-like
+#   illness cut contacts at leisure to 0.06 and at work or school to 0.09 of the usual, Van
+#   Kerckhove et al. 2013, Am J Epidemiol: 1 - 0.06 / 0.09; the full text was not available to the
+#   reviewer, so the ratio is taken as the earlier version of this file quotes it).
+prodrome_limit_outings = 0.33
+# Source: a recognised case must stay isolated "po dobu 7 dnů od objevení vyrážky" (7 days from
+#   the rash; leaflet of the Regional Public Health Authority of the Moravian-Silesian Region,
+#   khsova.cz), longer than the 4 infectious days after the rash. Applies to those not in hospital
+#   (the targets are measured without admission).
+stay_home = 1.0
+limit_outings = 0.0
+# Source: measles is among the infections whose patients are isolated and treated in an
+#   infectious diseases department (decree 306/2012 Coll., in force in 2019; "ze zákona povinná
+#   hospitalizace na infekčním oddělení", the same leaflet). Every recognised case is in hospital
+#   from the rash on, away from the town. Measured without it: the household attack rate and the
+#   reproduction number come from populations where cases were nursed at home.
+admission_share = 1.0
 # Derived: deaths among reported measles cases of known age in the EU/EEA, 2019 and 2024 pooled
 #   (ECDC annual epidemiological reports; 12,435 cases of known age in 2019 (of 13,200) and
 #   35,212 in 2024; shares of cases by age and deaths by age are printed in the reports). The
 #   base is the rate of the age group 1-4 years, 10 deaths among 13,769 cases = 0.000726; the age
 #   effects below are the rates of the other groups divided by it, so every age has the sourced
-#   rate whatever the age structure of the town is. Over all ages and all 47,647 cases the rate is
-#   0.069 %. The Czech Republic is taken as a developed economy. The same level is found for
-#   children aged 1-4 years by a WHO expert group for the developed economies of the European
-#   Region (0.05 %; 0.1-0.5 % for economies in transition; Wolfson et al. 2009, Int J Epidemiol,
-#   Table 2) and in Switzerland (0.04-0.08 % of reported cases in 1955-74; Friedauer et al.
-#   2025, Am J Epidemiol, Table 1). Caveats: the counts are small, 22 of the 23 deaths of 2024 and
-#   a large part of the cases were in Romania, and a reported case is not every infection. Higher
-#   levels exist elsewhere: 0.24 % in the Americas in 2025 (PAHO, measles bulletin, data to week
-#   53 of 2025), 0.32 % in the United States outbreak of 2025 (Friedauer et al.), 0.2 % in the
-#   EU/EEA in 2018 (37 deaths, mostly Romania; ECDC), and 0 to 40 % in community studies in
-#   poorer countries (Wolfson et al.). The age pattern is in age_effects.
+#   rate whatever the age structure of the town is. Over all ages the rate is 33 deaths among
+#   47,647 cases, 0.069 % (the printed age shares of 2019 add up to 101 %, so the cases by age
+#   add up to 47,736). The Czech Republic is taken as a developed economy. The same level is
+#   found for children aged 1-4 years by a WHO expert group for the developed economies of the
+#   European Region (0.05 %; 0.1-0.5 % for economies in transition; Wolfson et al. 2009, Int J
+#   Epidemiol, Table 2) and in Switzerland (0.04-0.08 % of reported cases in 1955-74; Friedauer
+#   et al. 2025, Am J Epidemiol, Table 1). Caveats: the counts are small, 22 of the 23 deaths of
+#   2024 and a large part of the cases were in Romania, and a reported case is not every
+#   infection. Higher levels exist elsewhere: 0.24 % in the Americas in 2025 (PAHO, measles
+#   bulletin, data to week 53 of 2025), 0.32 % in the United States outbreak of 2025 (3 of 935
+#   cases to 1 May 2025, quoted by Friedauer et al.), 0.2 % in the EU/EEA in 2018 (37 deaths,
+#   mostly Romania; ECDC), and 0 to 40 % in community studies in poorer countries (Wolfson et
+#   al.). The age pattern is in age_effects.
 fatality = 0.000726
 # Source: lifelong immunity after recovery (Peter Panum 1846, as stated in the CDC Pink Book).
 immunity_days = 36500
 immunity_protection = 1.0
-# Estimate: from the rash on, measles is recognised (a notifiable disease); people ill with
-#   influenza-like illness cut their contacts at work or school to 0.09 and at leisure to 0.06 of the
-#   usual (Van Kerckhove et al. 2013, Am J Epidemiol), so 91 % stay at home and, of the rest, one
-#   third skip leisure and errands (1 - 0.06 / 0.09 = 0.33). Measles is at least as debilitating.
-#   Before the rash (the prodrome) people behave as usual.
-stay_home = 0.91
-limit_outings = 0.33
 # Not found: a share of infections without symptoms among people without immunity. Measles without
 #   symptoms is described in people with some immunity (vaccinated people, with an immune response
 #   from before), whom the model counts as immune. No course without symptoms.
@@ -88,11 +149,15 @@ susceptibility_cv = 0.0
 #   vaccinated and mostly reflects how the unvaccinated cluster ("heterogeneous vaccination coverage
 #   is an important environmental factor"), which the town has itself; so none is added.
 infectiousness_dispersion = 0.0
+# Derived: the measles incubation period has a dispersion of 1.23 (Lessler et al. 2009, Lancet
+#   Infect Dis, log-normal fit of the time to the first symptoms), a coefficient of variation of
+#   0.21; a gamma distribution of the same variation has the shape 1 / 0.21^2 = 23.
+duration_shape = 23.0
 # Derived: in London 1911, deaths of measles came 3 to more than 21 days after the rash, the median
 #   in the 10-14 days band (42 deaths, Acton, report of the Medical Officer of Health; mean 14.6 days
 #   from the onset in Paddington 1910, 65 deaths); no modern series was found. The infectious period
 #   ends 4 days after the rash, so 12 - 4 = 8 days. Before antibiotics; a historical figure. Those who
-#   die of it are gravely ill for these days, away from everybody.
+#   die of it are gravely ill for these days, in hospital.
 death_delay_days = 8.0
 # Source: 93.0 % (95 % CI 92.0-93.9) of 3,111 people aged 1-64 had measles IgG antibodies in the
 #   national serological survey of the Czech Republic in 2013 (Tomaskova et al. 2018, Cent Eur J
@@ -128,25 +193,44 @@ fatality = [[0, 1, 1.621], [1, 5, 1.0], [5, 10, 0.197], [10, 20, 0.157], [20, 30
 #   naturally induced immunity, 97.7 % (387 of 396), an extrapolation. Age 0: not vaccinated yet
 #   and maternal antibodies are not counted (they are gone within the first months).
 starting_share = [[0, 1, 0.0], [1, 2, 0.6667], [2, 6, 1.072], [6, 16, 1.0247], [16, 21, 1.014], [21, 26, 0.986], [26, 31, 1.0204], [31, 41, 0.9871], [41, 51, 0.8645], [51, 61, 1.043], [61, 71, 1.0591], [71, 120, 1.0505]]
+# Derived: children of 0-15 years took time off school or childcare in 56 % of the episodes of
+#   influenza A, adults of 16-64 years in 31 % (Fragaszy et al. 2018, Table 2): 56 / 31 = 1.806.
+#   Estimate: people of 65 and older as the adults (Fragaszy's 13 % of the 65+ is time off work
+#   of the few who work, 8 episodes; how retired people change their outings when ill was not
+#   measured).
+stay_home = [[0, 16, 1.806]]
 
 # What the Fitted values were fitted to, and what the disease is checked against (not fitted).
 [targets.household_attack_rate]
-# 24 of 28 susceptible household members infected (86 %; Wilson 95 % interval 69-94 %), the
-# Netherlands 1999-2000; 91 % of susceptible pupils, 90 % of all susceptibles (157 of 174); CDC:
-# "more than 90 %" in close-contact settings. Measured with nobody immune.
-value = 0.86
-low = 0.69
-high = 0.94
-source = "van den Hof et al. 2001, Emerg Infect Dis 7(7)"
-with = { initial_immune = 0.0 }
+# 24 of 28 susceptible household members (born 1986 or later, unvaccinated, without a history of
+# measles) of the pupils of an orthodox reformed elementary school had clinical measles (86 %;
+# van den Hof et al. 2001, the Netherlands 1999); three of the four who escaped were probably
+# protected by maternal antibodies, so among those without protection it is 24 of 25 (Derived:
+# 0.96, Wilson 95 % interval 0.80-0.99). It is the attack rate over the outbreak, exposure in the
+# household by one or more ill pupils, not that from a single first case. CDC: "secondary attack
+# rates are >=90 % among susceptible household and institutional contacts" (Yellow Book, measles;
+# Pink Book chapter 13 has "more than 90 %" among susceptible close contacts). Measured as the study
+# had it: first cases of elementary school age (4-12 years), the attack rate among household members
+# under 14, nobody immune and nobody admitted to hospital (cases were nursed at home).
+value = 0.96
+low = 0.80
+high = 0.99
+source = "van den Hof et al. 2001, Emerg Infect Dis 7(7):593; CDC Yellow Book"
+index_ages = [4, 13]
+contact_ages = [0, 14]
+with = { initial_immune = 0.0, admission_share = 0.0 }
 [targets.reproduction_number]
 # The "often cited range of 12-18" (Guerra et al. 2017, Lancet Infect Dis 17:e420, which finds the
-# published estimates vary more widely); its middle. Measured with nobody immune.
+# published estimates vary more widely); its middle. Estimated in populations where cases were
+# nursed at home: measured with nobody immune and nobody admitted to hospital, from one first case
+# (from more, the infections of one generation reach several per cent of the town).
 value = 15.0
 low = 12.0
 high = 18.0
 source = "Guerra et al. 2017, Lancet Infect Dis 17:e420"
-with = { initial_immune = 0.0 }
+with = { initial_immune = 0.0, admission_share = 0.0 }
+initial = 1
+first_generation = 1
 [targets.generation_interval]
 # Mean serial interval 11.7 days (Vink et al. 2014, Am J Epidemiol); generation time and incubation
 # period both about 11-12 days (Klinkenberg and Nishiura 2011, J Theor Biol). A check.
@@ -154,4 +238,6 @@ value = 11.7
 low = 11.0
 high = 12.5
 source = "Vink et al. 2014, Am J Epidemiol 180:865"
-with = { initial_immune = 0.0 }
+with = { initial_immune = 0.0, admission_share = 0.0 }
+initial = 1
+first_generation = 1

@@ -18,36 +18,34 @@ male_share = 0.4924
 women_share_from_65 = 0.580
 
 [households]
-# Census 2021: housekeeping households.
-source = "https://scitani.gov.cz/size-of-housekeeping-household"
-mean_size = 2.15
+# Census 2021: the people of an occupied dwelling (4,480,139 dwellings, 10,104,385 persons), CZSO
+# open data of the census, sldb2021_byty_osoby.csv.
+source = "https://csu.gov.cz/produkty/vysledky-scitani-2021-otevrena-data"
+mean_size = 2.26
 sizes = [1, 2, 3, 4, 5, 6]         # the last one is six or more
-size_shares = [0.3907, 0.2952, 0.1458, 0.1252, 0.0314, 0.0117]
-
-[kinds]
-# Census 2021: share of households with children living with two or with one parent.
-source = "https://scitani.gov.cz/type-of-housekeeping-household"
-single_person = 0.3907
+size_shares = [0.3566, 0.2987, 0.1564, 0.1341, 0.0378, 0.0165]
 
 [living_alone]
-# People living alone. 65+: 688 thousand single-person households of 2.17 million (CZSO); by sex
-# EU-SILC 2021, ilc_lvps30; under 65 the labour force survey 2021, lfst_hhindws.
+# People living alone in a dwelling, as shares of the people of the age on 1 January 2019. Census
+# 2021: 1,597,474 dwellings of one person (CZSO open data, sldb2021_byty_osoby.csv), "627,5 tis." of
+# them aged 65+ (https://csu.gov.cz/seniori-v-datech/domacnosti-senioru). The 969,974 under 65 are
+# divided by the ages of the people living alone in the labour force survey 2019 (Eurostat
+# lfst_hhindws, "one adult without resident children", 55.3 / 451.8 / 236.4 of 854.5 thousand aged
+# 18-64). The survey's own shares (8.2 / 11.6 / 17.9 %) are lower: it finds fewer people living
+# alone under 65 than the census. Those at 55-64 and from 65 are targets of the fit.
 source = "https://csu.gov.cz/seniori-v-datech/domacnosti-senioru"
-from_65 = 0.319
-men_from_65 = 0.210
-women_from_65 = 0.402
-age_18_24 = 0.091
-age_25_49 = 0.164
+from_65 = 0.301
+age_18_24 = 0.092
+age_25_49 = 0.131
 age_55_64 = 0.205
 
 [family]
-# Eurostat. Young adults in other households than alone or in a couple, nearly always with parents:
-# 77.5 % of the 18-24 year olds (lfst_hhindws 2021). Children under 18 with one parent: 13.0 % in
-# 2021 and 14.2 % in 2023 (ilc_lvps20). Households with a child: 1,273 of 4,852 thousand (lfst_hhnhtych).
+# Eurostat, 2019. Young adults in other households than alone or in a couple, nearly always with
+# parents: 504.5 of the 672.8 thousand aged 18-24 (lfst_hhindws). Children under 18 with one parent
+# (ilc_lvps20).
 source = "https://ec.europa.eu/eurostat/databrowser/view/ilc_lvps20"
-young_with_parents_18_24 = 0.775
-children_with_one_parent = 0.136
-households_with_children = 0.262
+young_with_parents_18_24 = 0.750
+children_with_one_parent = 0.135
 
 [births]
 # Live births by age of the mother, 2019 (Eurostat demo_fasec): the ages of mothers of infants.
@@ -79,15 +77,54 @@ neet_15_29 = 0.098
 neet_20_24 = 0.090
 
 [care_homes]
-# 57.8 thousand residents of homes for the elderly and homes with a special regime at the end of 2023.
-source = "https://csu.gov.cz/seniori-v-datech/zarizeni-socialnich-sluzeb-a-jejich-klienti"
-share_of_population = 0.0055
+# Residents of homes for the elderly and homes with a special regime on 31 December 2019: 55,108,
+# 40,290 of them women, 14,660 permanently bedridden (MPSV, Statisticka rocenka z oblasti prace a
+# socialnich veci 2019, table 6.3), of 10,649,800 people (1 January 2019).
+source = "https://www.mpsv.cz/cms/documents/f932ecba-bc00-848b-aaee-38340fdcd81d/Statisticka_rocenka_z_oblasti_prace_a_socialnich_veci_2019.pdf"
+share_of_population = 0.00517
+women_share = 0.731
+bedridden_share = 0.266
 
-[enterprises]
-# Persons employed by size of enterprise, Czechia 2021 (Eurostat sbs_sc_ovw).
-source = "https://ec.europa.eu/eurostat/databrowser/view/sbs_sc_ovw"
-under_10 = 0.331
-from_250 = 0.313
+[local_units]
+# Employees by the number of persons working at their local unit, Czechia 2019, labour force survey
+# (Eurostat lfso_19fxwt02): 797.5, 1,699.0 and 1,853.5 thousand.
+source = "https://ec.europa.eu/eurostat/databrowser/view/lfso_19fxwt02"
+up_to_10 = 0.183
+from_11_to_49 = 0.390
+from_50 = 0.426
+
+[household_contacts]
+# Of the contacts at home met daily or almost daily (the people one lives with) of the adults
+# (18-64) in Germany and Poland: 62.9 % lasted more than 4 hours, 21.1 % 1-4 hours (POLYMOD,
+# Mossong et al. 2008, Zenodo doi:10.5281/zenodo.3874557; 2,894 contacts). The margin covers the
+# children (70.1 %) and the old (58.3 %).
+source = "POLYMOD, Germany and Poland (participant_common.csv, contact_common.csv)"
+over_4_hours = 0.63
+hours_1_4 = 0.21
+margin = 0.12
+
+[time_together]
+# Hours a day spent awake with the members of one's household (children, parents, partner, others),
+# everybody of the age including those living alone, HETUS 2020 (Eurostat tus_20wwhom), the median
+# of Germany, Poland, Hungary, Bulgaria and Croatia (Czechia took no part). It also counts the time
+# together away from home (errands, trips, visits), which the town's time at home does not: the
+# town may have up to 40 % less (Assumption: no split by place is published), and 25 % more.
+source = "https://ec.europa.eu/eurostat/databrowser/view/tus_20wwhom"
+age_groups = [[10, 15], [15, 25], [25, 35], [35, 45], [45, 55], [55, 65], [65, 75], [75, 100]]
+hours = [6.42, 4.32, 6.33, 6.88, 5.77, 4.83, 4.82, 4.30]
+lowest = 0.60
+highest = 1.25
+
+[whereabouts]
+# People at home at 10 a.m. of a workday (the share of those who made no trip that day plus those at
+# home at 10 of those who did), by age, Cesko v pohybu, the national travel survey, 2017-2019
+# (Kouril, Simecek, Dytrt 2022, CDV, tables 34-37,
+# https://rstudio.cdvinfo.cz/shiny/downloads/publikace/2022_Kouril-Simecek-Dytrt_Cesko-v-pohybu.pdf).
+source = "Cesko v pohybu (CDV 2022), tables 34-37"
+hour = 10.0
+age_groups = [[6, 18], [18, 40], [40, 65], [65, 100]]
+at_home = [0.207, 0.308, 0.296, 0.622]
+margin = 0.08
 
 [contacts]
 # Prem et al. (2021), synthetic contact matrices for Czechia; see czechia_contacts_prem2021.csv.

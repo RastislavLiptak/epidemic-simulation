@@ -34,6 +34,8 @@ def venues(
     work,
     resident,
     room_venue,
+    ward_venue,
+    bedridden,
     night,
     inside,
     away,
@@ -44,9 +46,9 @@ def venues(
     """The venue everybody is in (see `town.Venues`), -1 for those on the way or away.
 
     A person is at the place of their `code` (the workplace, the lunch place, the place of an
-    activity, else at home); the pupils and teachers who are in the common rooms of their school
-    are in the school; whoever goes home or back to work is there; at `night` the residents of a
-    care home are in their rooms.
+    activity, else at home); the people in the common area of their school or workplace are
+    there; whoever goes home or back to work is there. The residents of a care home who are at
+    home are in the day room of their ward, at `night` and when they are bedridden in their room.
     """
     count = code.shape[0]
     venue = np.empty(count, np.int64)
@@ -64,8 +66,8 @@ def venues(
             here = np.int64(household[person])
         if work[person]:
             here = work_venue[person]
-        if night and resident[person] and here == household[person]:
-            here = room_venue[person]
+        if resident[person] and here == household[person]:
+            here = room_venue[person] if night or bedridden[person] else ward_venue[person]
         if not inside[person] or away[person]:
             here = -1
         venue[person] = here
@@ -159,13 +161,16 @@ def settled_movers(
     detour,
     guardian,
     resident,
+    bedridden,
     up,
+    awake,
     home_code,
     work_code,
 ):
     """Who has settled at their spot and may move to another one: those who are away from home
     where their day takes them and are on their own (not small children with a guardian, except
-    at school), and the residents of a care home while they are up."""
+    at school); at home everybody while `awake`, the residents of a care home while they are
+    `up` and not bedridden."""
     chosen = np.empty(x.shape[0], np.int64)
     found = 0
     for person in range(x.shape[0]):
@@ -173,28 +178,36 @@ def settled_movers(
             continue
         if detour[person]:
             continue
-        away = code[person] != home_code
-        on_their_own = guardian[person] < 0 or code[person] == work_code
-        if (away and on_their_own) or (resident[person] and not away and up):
+        if code[person] != home_code:
+            moves = guardian[person] < 0 or code[person] == work_code
+        elif resident[person]:
+            moves = up and not bedridden[person]
+        else:
+            moves = awake
+        if moves:
             chosen[found] = person
             found += 1
     return chosen[:found].copy()
 
 
 @sized_kernel(from_people=PARALLEL_FROM_PEOPLE)
-def sort_events(times, codes):
-    """The events of every person (a row of `times` and of `codes`) in the order of their times;
-    events at the same time stay in the order they had. What `np.argsort(kind="stable")` and
-    `np.take_along_axis` give, without the sort of the whole table and the two copies of it."""
-    ordered_times, ordered_codes = times.copy(), codes.copy()
+def sort_events(times, codes, travel):
+    """The events of every person (a row of `times`, of `codes` and of `travel`) in the order of
+    their times; events at the same time stay in the order they had. What
+    `np.argsort(kind="stable")` and `np.take_along_axis` give, without the sort of the whole table
+    and the copies of it."""
+    ordered_times, ordered_codes, ordered_travel = times.copy(), codes.copy(), travel.copy()
     for person in prange(times.shape[0]):
         for position in range(1, times.shape[1]):
             time, code = ordered_times[person, position], ordered_codes[person, position]
+            trip = ordered_travel[person, position]
             before = position - 1
             while before >= 0 and ordered_times[person, before] > time:
                 ordered_times[person, before + 1] = ordered_times[person, before]
                 ordered_codes[person, before + 1] = ordered_codes[person, before]
+                ordered_travel[person, before + 1] = ordered_travel[person, before]
                 before -= 1
             ordered_times[person, before + 1] = time
             ordered_codes[person, before + 1] = code
-    return ordered_times, ordered_codes
+            ordered_travel[person, before + 1] = trip
+    return ordered_times, ordered_codes, ordered_travel

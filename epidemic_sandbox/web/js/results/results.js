@@ -10,14 +10,17 @@ import {
 import { element } from "../shared/fields.js";
 import { formatMetric } from "../shared/sidebar.js";
 
+/** A number of days: whole, or to a tenth when the experiment ended within a day. */
+const formatDays = (days) => (Number.isInteger(days) ? String(days) : days.toFixed(1));
+
 const COLUMNS = [
   ["Ever infected", "everInfected", (value) => Math.round(value).toLocaleString()],
   ["Share of people", "attackRate", (value) => `${(100 * value).toFixed(1)} %`],
   ["Peak infectious", "peakInfectious", (value) => Math.round(value).toLocaleString()],
-  ["Peak on day", "peakDay", (value) => value.toFixed(0)],
+  ["Peak on day", "peakDay", formatDays],
   ["Deaths caused", "deaths", (value) => Math.round(value).toLocaleString()],
   ["Infections in total", "totalInfections", (value) => Math.round(value).toLocaleString()],
-  ["Last infectious day", "lastInfectiousDay", (value) => value.toFixed(0)],
+  ["Last infectious day", "lastInfectiousDay", formatDays],
 ];
 
 function download(name, text) {
@@ -52,7 +55,7 @@ export class ResultsView {
       element(
         "p",
         "card__lead",
-        `${history.runCount} ${history.runCount === 1 ? "run" : "runs"}, ${history.dayCount - 1} simulated days, ${history.population.toLocaleString()} people each.`,
+        `${history.runCount} ${history.runCount === 1 ? "run" : "runs"}, ${formatDays(history.lastDay)} simulated days, ${history.population.toLocaleString()} people each.`,
       ),
     );
     const save = element("button", "button", "Download CSV");
@@ -95,11 +98,12 @@ export class ResultsView {
 
   fillStacked(chart, history, name, run) {
     const series = history.series(name, run);
+    const days = history.days;
     chart.data.datasets.forEach((dataset, state) => {
-      dataset.data = dailyPoints(series[state]);
+      dataset.data = dailyPoints(series[state], days);
     });
     chart.options.scales.y.max = history.population;
-    chart.options.scales.x.max = Math.max(history.dayCount - 1, 1);
+    chart.options.scales.x.max = Math.max(history.lastDay, 1);
     chart.update("none");
   }
 

@@ -71,11 +71,11 @@ compares the generated population with the data in `data/reference/` (sources ar
 python -m epidemic_sandbox.analysis.calibrate covid19
 ```
 
-measures a disease in the town the way studies of real outbreaks measure it (household attack rate, reproduction number, generation interval, where infections happen, incidence of a disease that stays) and compares the results with the published targets in the `[targets]` table of its file. The comments of a disease file say which values were fitted to which target; `--set name=value` tries another value.
+measures a disease in the town the way studies of real outbreaks measure it (household attack rate, reproduction number, generation interval, where infections happen, incidence of a disease that stays) and compares the results with the published targets in the `[targets]` table of its file. The comments of a disease file say which values were fitted to which target; `--set name=value` tries another value. The reproduction number is counted from the third generation of an epidemic that starts from a few first cases (`first_generation` and `initial` of a target change that), because the first generations are not typical; a disease file lists the checks it does not meet under "Known limitations".
 
 ## Scope
 
-The town is self-contained and its people do not age, move or change jobs during a run; a disease can be brought in from outside at a constant rate (`outside_infections`). Every model can let a share of the infections run without symptoms (`asymptomatic_share`): those people behave as usual, spread as much as the disease file says and do not die of it. There are no seasons and no hospitals: the gravely ill are away from the town until they die. Distances, schedules and contacts are simplified; `configs/town.toml` and `epidemic_sandbox/world/town.py` are where to look when you need to know how.
+The town is self-contained and its people do not age, move or change jobs during a run; a disease can be brought in from outside at a constant rate (`outside_infections`). Every model can let a share of the infections run without symptoms (`asymptomatic_share`): those people behave as usual, spread as much as the disease file says and do not die of it. There are no seasons and no hospital beds: the gravely ill, and the cases a disease admits (measles by law, SARS), are away from the town until they recover or die. Infection spreads at close range (weighted by distance) and, for a disease with `room_exposure`, through the air of an indoor room at any distance. Distances, schedules and contacts are simplified; `configs/town.toml` and `epidemic_sandbox/world/town.py` are where to look when you need to know how.
 
 ## Development
 

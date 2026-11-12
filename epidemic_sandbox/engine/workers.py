@@ -143,6 +143,8 @@ def _answer(experiments: dict, command: str, arguments: list, runs_class):
     indices, runs = experiments[key]
     if command == "step":
         return runs.step(arguments[0])
+    if command == "finish":
+        return runs.finish()
     if command == "report":
         history_from, watched, visible = arguments
         local = indices.index(watched) if watched in indices else None

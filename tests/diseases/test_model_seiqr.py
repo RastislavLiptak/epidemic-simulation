@@ -605,7 +605,8 @@ def test_the_disease_is_a_seiqr_with_every_case_admitted_and_age_dependent_fatal
     assert parameters["detection_coverage"] == 1.0
     assert parameters["quarantine_infectiousness"] == 0.0
     assert parameters["detection_delay_days"] < parameters["undetected_days"]
-    assert model.mean_field_r0(10.0) > 1.0
+    # the mean field counts 10 close contacts, each also in the shared air of its room
+    assert model.mean_field_r0(10.0 * (1 + parameters["room_exposure"])) > 1.0
     ages = np.array([10, 30, 55, 80])
     risk = model._age_multiplier("fatality", ages) * parameters["fatality"]
     assert (np.diff(risk) > 0).all() and risk[0] < 0.01
@@ -623,6 +624,7 @@ def test_prompt_and_tight_isolation_reduces_the_spread_in_the_town():
     shared = {
         "transmission": 0.7,
         "contact_distance": 4.0,
+        "near_distance": 4.0,
         "detection_delay_days": 1.0,
         "undetected_days": 5.0,
         "quarantine_days": 5.0,
@@ -652,15 +654,21 @@ SOURCED = (
         "quarantine_infectiousness": 0.0,
         "fatality": 0.06,  # WHO 2003
         "death_delay_days": 12.9,  # Leung et al. 2004
-        "transmission": 0.049,
-        "community_factor": 44.0,
+        "transmission": 0.00766,
+        "community_factor": 1.0,
+        "near_distance": 1.0,
+        "room_exposure": 9.93,
+        "asleep_emission": 0.2,
         "duration_shape": 4.9,  # Lipsitch et al. 2003
         "infectiousness_dispersion": 0.25,
-        "stay_home": 0.40,
+        "stay_home": 0.30,  # Fragaszy et al. 2018
+        "limit_outings": 0.32,
+        "admission_share": 1.0,  # Donnelly et al. 2003, Lau et al. 2004
     },
     {
         "fatality": [[0, 25, 0.0833], [25, 45, 1.0], [45, 65, 2.5], [65, 120, 8.333]],  # WHO 2003
-        "susceptibility": [[0, 18, 0.15]],
+        "susceptibility": [[0, 18, 0.233]],
+        "stay_home": [[0, 16, 1.806]],  # Fragaszy et al. 2018
     },
 )
 # the model's own defaults: the home isolation of Chowell et al. 2003 (Table 1 and the model's own
@@ -672,6 +680,7 @@ DEFAULTS = {
     "quarantine_days": 7.8,
     "detection_coverage": 0.77,
     "quarantine_infectiousness": 0.38,
+    "admission_share": 0.0,
 }
 
 

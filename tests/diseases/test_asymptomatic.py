@@ -21,7 +21,7 @@ from epidemic_sandbox.disease_models.disease_model_abstract import (
     Phase,
 )
 from epidemic_sandbox.disease_models.sepir import PRESYMPTOMATIC, SepirModel
-from epidemic_sandbox.disease_models.sis import SisModel
+from epidemic_sandbox.disease_models.sirs import SirsModel
 
 KEYS = sorted(DISEASE_MODELS)
 SHARP = {"duration_shape": 50.0}
@@ -70,7 +70,7 @@ def test_the_age_effect_scales_the_share_without_symptoms():
 
 
 def test_without_a_latent_period_the_course_splits_at_the_infection():
-    model = SisModel(ONE_DAY, transmission=1.0, asymptomatic_share=0.44)
+    model = SirsModel(ONE_DAY, transmission=1.0, asymptomatic_share=0.44)
     disease_state, rng = new_state(model, 40_000)
     infected = np.arange(40_000)
     model.apply_infections(disease_state, infected, rng)
@@ -148,7 +148,7 @@ def test_the_age_effect_without_symptoms_needs_the_course():
         PARAMETERS = {
             **COMMON_PARAMETERS,
             **DEATH_PARAMETERS,
-            "infectious_days": SisModel.PARAMETERS["infectious_days"],
+            "infectious_days": SirsModel.PARAMETERS["infectious_days"],
         }
         STATE_COLORS = {SUSCEPTIBLE: "#000", INFECTIOUS: "#111", DYING: "#222", DEAD: "#333"}
         INFECTIOUS_STATES = frozenset({INFECTIOUS})
@@ -279,7 +279,7 @@ def test_the_share_before_symptoms_counts_only_infectors_who_had_symptoms():
         "age": np.full(6, 40),
         "population": 1000,
     }
-    result = summarise([run], steps_per_day=1)
+    result = summarise([run], steps_per_day=1, first_generation=1)
     # of the infections by 0, one of two before the onset; those by 1 do not count
     assert result["share_before_symptoms"] == pytest.approx(0.5)
     assert result["share_without_symptoms"] == pytest.approx(0.25)

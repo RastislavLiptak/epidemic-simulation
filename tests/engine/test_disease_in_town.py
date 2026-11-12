@@ -49,11 +49,15 @@ def test_the_trait_of_a_person_and_the_weight_of_their_state_multiply():
 def test_only_the_symptomatic_stay_at_home_and_the_confined_always_do():
     model = fork_model(stay_home=1.0)
     disease_state = model.disease_states["a"]
-    for person, state in ((0, INFECTIOUS), (1, MILD), (2, EXPOSED), (3, HOSPITAL)):
+    # adults living alone: no sick child keeps anybody at home with it
+    household = model.town.household
+    alone = np.flatnonzero((np.bincount(household)[household] == 1) & (model.town.age >= 18))[:4]
+    assert len(alone) == 4
+    for person, state in zip(alone, (INFECTIOUS, MILD, EXPOSED, HOSPITAL), strict=True):
         model.diseases["a"]._enter(
-            disease_state, np.array([person]), state, np.random.default_rng(person)
+            disease_state, np.array([person]), state, np.random.default_rng(int(person))
         )
-    assert model._goes_home()[:4].tolist() == [True, False, False, True]
+    assert model._goes_home()[alone].tolist() == [True, False, False, True]
 
 
 def test_the_confined_are_at_home_even_when_their_day_takes_them_out():

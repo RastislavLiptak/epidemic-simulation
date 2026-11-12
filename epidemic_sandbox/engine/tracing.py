@@ -36,6 +36,7 @@ BASE_SETTINGS = (
     "university",
     "work",
     "lunch",
+    "transport",  # passengers of a public transport vehicle
 )
 
 
@@ -91,7 +92,7 @@ class InfectionTrace:
                 self.onset[name][person] = 0
 
     def record_infections(
-        self, model, name, infected, infectiousness, grid, cells, exposure, relative=1.0
+        self, model, name, infected, infectiousness, grid, cells, exposure, relative=1.0, room=0.0
     ) -> None:
         """Note the people infected with `name` in this step, with their infectors; `exposure` and
         `relative` are what the engine drew them with."""
@@ -108,12 +109,16 @@ class InfectionTrace:
             self._rng.random(len(infected)),
             infectiousness,
             model.town.household,
+            model._at_home,
             model.venue,
             np.float32(disease.parameters["community_factor"]),
             *grid,
             cells,
             float(disease.contact_distance),
+            float(disease.near_distance),
         )
+        by_room = self._by_room(model, infected, infectiousness, exposure, relative, room)
+        infectors = np.where(by_room[0], by_room[1], infectors)
         infectors[from_outside] = -1
         settings = self._settings_of(model, infected, infectors)
         settings[from_outside] = self.settings.index("outside")
@@ -124,6 +129,40 @@ class InfectionTrace:
             infectors >= 0, ((onset != NOT_YET) & (onset <= model.steps)).astype(np.int64), -1
         )
         self._append(name, infected, model.steps, infectors, settings, symptomatic)
+
+    def _by_room(self, model, infected, infectiousness, exposure, relative, room):
+        """Which of the infected caught the disease from the air of their room rather than at
+        close range (with the chance of the room's share of their exposure), and who in their
+        venue infected them (an infectious person of the venue, chosen by infectiousness)."""
+        count = len(infected)
+        chosen, infector = np.zeros(count, np.bool_), np.full(count, -1, np.int64)
+        if not np.ndim(room) or not np.any(room):
+            return chosen, infector
+        total = np.asarray(exposure, np.float64)[infected] / np.broadcast_to(
+            np.asarray(relative, np.float64), np.shape(exposure)
+        )[infected]
+        in_room = np.asarray(room, np.float64)[infected]
+        share = np.where(total > 0, in_room / np.maximum(total, 1e-30), 0.0)
+        chosen = self._rng.random(count) < share
+        venue = model.venue
+        members = np.flatnonzero((venue >= 0) & (infectiousness > 0))
+        order = np.argsort(venue[members], kind="stable")
+        members = members[order]
+        venues_of = venue[members]
+        for index in np.flatnonzero(chosen):
+            person = infected[index]
+            low = np.searchsorted(venues_of, venue[person], side="left")
+            high = np.searchsorted(venues_of, venue[person], side="right")
+            others = members[low:high]
+            others = others[others != person]
+            weights = infectiousness[others]
+            if not len(others) or weights.sum() <= 0:
+                chosen[index] = False
+                continue
+            threshold = self._rng.random() * weights.sum()
+            found = np.searchsorted(np.cumsum(weights), threshold)
+            infector[index] = others[min(found, len(others) - 1)]
+        return chosen, infector
 
     @staticmethod
     def _outside_share(disease, infected, exposure, relative) -> np.ndarray:
@@ -205,8 +244,11 @@ class InfectionTrace:
         same_household[known] = town.household[infectors[known]] == town.household[people[known]]
         index = self.settings.index
         setting = np.full(len(people), index("work"))
-        setting[at_home & same_household] = index("household")
-        setting[(at_home & ~same_household) | self._visit(model, code)] = index("visit")
+        # a household is together at home only when both are there (as the engine weighs them)
+        together = same_household.copy()
+        together[known] &= model._at_home[infectors[known]] & model._at_home[people[known]]
+        setting[at_home & together] = index("household")
+        setting[(at_home & ~together) | self._visit(model, code)] = index("visit")
         setting[at_home & (town.role[people] == RESIDENT)] = index("care_home")
         place = town.place_kind[people]
         at_work = code == WORK
@@ -218,6 +260,9 @@ class InfectionTrace:
         for offset, activity in enumerate(model.town_parameters.schedule.activities):
             if activity.kind != "visit":
                 setting[code == FIRST_ACTIVITY + offset] = index(activity.name)
+        # whoever is in a vehicle was infected there, whatever place the trip leads to
+        in_vehicle = model.venue[people] >= model._vehicles.first_venue
+        setting[in_vehicle] = index("transport")
         return setting
 
     @staticmethod

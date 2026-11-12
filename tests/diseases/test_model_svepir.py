@@ -246,22 +246,30 @@ SOURCED = (
         "vaccine_days": 110,
     },
     {
-        "transmission": 0.18,
-        "community_factor": 2.6,
+        "transmission": 0.78,
+        "community_factor": 1.0,
+        "near_distance": 1.0,
+        "room_exposure": 0.00316,
+        "asleep_emission": 0.2,
         "duration_shape": 5.4,
         "fatality": 0.00014,  # CDC burden estimates 2010-2020, Tsang et al. 2023
         "death_delay_days": 7.7,  # Louie et al. 2009
-        "stay_home": 0.40,  # Fragaszy et al. 2018
+        "stay_home": 0.31,  # Fragaszy et al. 2018
+        "waning_stay_home": 0.19,
         "limit_outings": 0.33,
+        "waning_limit_outings": 0.20,
         "infectiousness_dispersion": 0.94,  # Fraser et al. 2011
-        "initial_coverage": 0.074,
+        "initial_coverage": 0.049,  # Ministry of Health 2026, season 2018-19
         "asymptomatic_share": 0.36,  # Tsang et al. 2023
         "asymptomatic_infectiousness": 0.57,  # Tsang et al. 2023
         "asymptomatic_days": 4.8,  # Carrat et al. 2008
     },
     {
         "fatality": [[0, 5, 0.3345], [5, 18, 0.2108], [18, 50, 1.0], [50, 65, 2.969]],
-        "susceptibility": [[0, 19, 2.0]],  # Cauchemez et al. 2009
+        # Fitted to the CDC illness ratios by age
+        "susceptibility": [[0, 5, 1.7], [5, 18, 0.43], [50, 65, 2.7], [65, 120, 1.3]],
+        "starting_share": [[0, 65, 0.199], [65, 120, 4.286]],
+        "stay_home": [[0, 16, 1.806]],  # Fragaszy et al. 2018
     },
 )
 

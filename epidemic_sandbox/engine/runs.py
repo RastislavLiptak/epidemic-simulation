@@ -19,6 +19,7 @@ from epidemic_sandbox.world.schedule import DAYS_PER_WEEK, HOURS_PER_DAY
 from epidemic_sandbox.world.town import TownParameters
 
 POSITION_DECIMALS = 4  # positions go to the browser as shares of the arena, to 1/10,000
+DISPLAY_SEED = 7  # which people are drawn when a run has more than the browser draws
 
 
 class LocalRuns:
@@ -51,7 +52,8 @@ class LocalRuns:
 
     def report(self, history_from: int, watched: int | None, visible: int) -> list[dict]:
         """Per run: the counts of each state, the days of history from `history_from` on and,
-        for the run `watched`, where the first `visible` people are and in which state."""
+        for the run `watched`, where the `visible` people drawn are and in which state (see
+        `displayed_people`)."""
         reports = []
         for index, model in enumerate(self.models):
             data = {"counts": model.state_counts(), "history": model.history[history_from:]}
@@ -60,9 +62,16 @@ class LocalRuns:
             reports.append(data)
         return reports
 
-    def people(self, run: int, shown: int) -> tuple[list[int], list[int]]:
+    def people(self, run: int, shown: int) -> tuple[list[int], list[int], list[int]]:
+        """The people drawn in the browser (at most `shown`): their numbers, ages and roles."""
         town = self.models[run].town
-        return town.age[:shown].tolist(), town.role[:shown].tolist()
+        drawn = displayed_people(len(town.age), shown)
+        return drawn.tolist(), town.age[drawn].tolist(), town.role[drawn].tolist()
+
+    def finish(self) -> None:
+        """The experiment ends: every run records the hours since its last midnight."""
+        for model in self.models:
+            model.finish_day()
 
     def person(self, run: int, person: int) -> dict:
         from epidemic_sandbox.app.person_info import describe_person
@@ -129,8 +138,11 @@ class PooledRuns:
                 reports[index] = data
         return reports
 
-    def people(self, run: int, shown: int) -> tuple[list[int], list[int]]:
+    def people(self, run: int, shown: int) -> tuple[list[int], list[int], list[int]]:
         return self.pool.ask(self._owner(run), "people", self.key, run, shown)
+
+    def finish(self) -> None:
+        self.pool.ask_all(self.workers, "finish", self.key)
 
     def person(self, run: int, person: int) -> dict:
         return self.pool.ask(self._owner(run), "person", self.key, run, person)
@@ -171,14 +183,23 @@ class _Clock:
         return (self.steps % steps_per_day) * HOURS_PER_DAY / steps_per_day
 
 
+def displayed_people(population: int, visible: int) -> np.ndarray:
+    """The people drawn in the browser when it cannot draw all: a fixed random sample, in the order
+    of their numbers. People are numbered by household and the residents of care homes come last,
+    so the first `visible` would be no sample of the town."""
+    if visible >= population:
+        return np.arange(population)
+    return np.sort(np.random.default_rng(DISPLAY_SEED).choice(population, visible, replace=False))
+
+
 def _positions(model: EpidemicModel, visible: int) -> dict:
-    """Where the first `visible` people are (shares of the arena) and the state of each."""
-    visible = min(visible, model.population)
+    """Where the people drawn are (shares of the arena) and the state of each."""
+    drawn = displayed_people(model.population, visible)
     arena_size = model.world["arena_size"]
     return {
-        "x": np.round(model.x[:visible] / arena_size, POSITION_DECIMALS).tolist(),
-        "y": np.round(model.y[:visible] / arena_size, POSITION_DECIMALS).tolist(),
+        "x": np.round(model.x[drawn] / arena_size, POSITION_DECIMALS).tolist(),
+        "y": np.round(model.y[drawn] / arena_size, POSITION_DECIMALS).tolist(),
         "states": {
-            name: state.state[:visible].tolist() for name, state in model.disease_states.items()
+            name: state.state[drawn].tolist() for name, state in model.disease_states.items()
         },
     }

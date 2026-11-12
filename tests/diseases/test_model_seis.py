@@ -493,20 +493,25 @@ def test_the_model_is_found_by_the_registry_under_its_key():
 SOURCED = (
     {},
     {  # CDC clinical guidance, Danchin et al. 2007, Fragaszy et al. 2018, Van Kerckhove et al. 2013
-        "transmission": 0.042,
+        "transmission": 0.3361,
         "contact_distance": 2.0,
+        "near_distance": 1.0,
+        "asleep_emission": 0.2,
         "community_factor": 1.0,
         "incubation_days": 3.5,
         "infectious_days": 4.0,
         "duration_shape": 5.4,
         "fatality": 0.0,
-        "stay_home": 0.40,
-        "limit_outings": 0.33,
-        "outside_infections": 0.076,
+        "stay_home": 0.28,
+        "limit_outings": 0.30,
+        "outside_infections": 0.0335,
         "susceptibility_cv": 0.0,
         "infectiousness_dispersion": 0.0,
     },
-    {"outside_infections": [[0, 3, 0.37], [3, 16, 1.0], [16, 120, 0.37]]},
+    {
+        "outside_infections": [[0, 3, 0.37], [3, 16, 1.0], [16, 120, 0.48]],
+        "stay_home": [[0, 16, 1.806]],  # Fragaszy et al. 2018
+    },
 )
 
 

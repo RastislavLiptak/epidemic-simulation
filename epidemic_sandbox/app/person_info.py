@@ -130,10 +130,14 @@ def _label(model: EpidemicModel, role: str, code: int) -> str:
         return PLACE_OF_ROLE.get(role, "work")
     if code == LUNCH:
         return "lunch break"
-    return ACTIVITY_LABELS[model.town_parameters.schedule.activities[code - FIRST_ACTIVITY].name]
+    name = model.town_parameters.schedule.activities[code - FIRST_ACTIVITY].name
+    return ACTIVITY_LABELS.get(name, name.replace("_", " "))  # an activity added to town.toml
 
 
 def _now(model: EpidemicModel, person: int, role: str) -> dict:
+    gone = _dead_or_away(model, person)
+    if gone is not None:
+        return gone
     town = model.town
     x, y = float(model.x[person]), float(model.y[person])
     destination_x, destination_y = model.destination(person)
@@ -147,7 +151,7 @@ def _now(model: EpidemicModel, person: int, role: str) -> dict:
     remaining = float(np.hypot(destination_x - x, destination_y - y))
     now_hours = model.steps * model.step_hours
     if remaining > ARRIVED_WITHIN_METERS:
-        speed = float(town.speed_kmh[person]) * 1000
+        speed = max(float(model._speed[person]), 1.0)  # m/h, what covers the trip in its time
         departure = model.departure_time(person)
         if departure > now_hours:
             activity, arrives = f"about to leave for {label}", departure + remaining / speed
@@ -162,6 +166,23 @@ def _now(model: EpidemicModel, person: int, role: str) -> dict:
         "arrives": arrives_at,
         "reason": _reason(model, person, role, code, ill_at_home),
     }
+
+
+def _dead_or_away(model: EpidemicModel, person: int) -> dict | None:
+    """What the dead and the gravely ill in hospital are doing: nothing in the town."""
+    names = list(model.diseases)
+    cause = int(model.cause_of_death[person])
+    if cause >= 0:
+        day = int(model.death_step[person] // model.world["steps_per_day"])
+        return {"activity": f"died of {names[cause]}", "arrives": None, "reason": f"on day {day}"}
+    for name, disease in model.diseases.items():
+        if disease.away_mask(model.disease_states[name])[person]:
+            return {
+                "activity": "in hospital",
+                "arrives": None,
+                "reason": f"gravely ill with {name}, meets nobody in the town",
+            }
+    return None
 
 
 def _reason(model: EpidemicModel, person: int, role: str, code: int, ill_at_home: bool) -> str:
@@ -231,10 +252,13 @@ def _health(model: EpidemicModel, person: int) -> dict:
 
 
 def _nearby(model: EpidemicModel, person: int) -> dict:
-    """People within the contact distance of the longest-reaching disease, the nearest first."""
+    """The people the person is in contact with: in the same venue (not behind a wall, not on
+    the way) within the contact distance of the longest-reaching disease, the nearest first."""
     radius = max(disease.contact_distance for disease in model.diseases.values())
     distance = np.hypot(model.x - model.x[person], model.y - model.y[person])
-    close = np.flatnonzero(distance <= radius)
+    venue = model.venue
+    together = (venue == venue[person]) & (venue[person] >= 0)
+    close = np.flatnonzero((distance <= radius) & together)
     close = close[close != person]
     nearest = close[np.argsort(distance[close])][:MAX_NEIGHBOURS]
     return {

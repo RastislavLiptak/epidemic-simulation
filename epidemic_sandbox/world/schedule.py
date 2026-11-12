@@ -58,13 +58,22 @@ VARIABILITY_KEYS = (
 
 @dataclass(frozen=True, eq=False)
 class ActivityParameters:
-    """An errand or leisure activity: when it happens, how long, how likely, where."""
+    """An errand or leisure activity: when it happens, how long, how likely, where.
+
+    `window` [weekday/weekend, from/to] are the hours in which an outing can begin (opening hours).
+    Without `start_mean` its beginning is uniform in them. With it, it is triangular: from the
+    opening, most often at the hour that puts the most people there at `start_peak` (the hour of
+    the day with the most people out on it, as travel surveys report it), and on average at
+    `start_mean`, by role on weekdays (`start_mean_weekend`, `start_peak_weekend` for everybody at
+    weekends). `duration_mean` is the mean length of an outing [weekday, weekend], gamma
+    distributed with the shape `duration_shape`.
+    """
 
     name: str
     kind: str
     window: np.ndarray
     probability: np.ndarray
-    duration_mean: float
+    duration_mean: np.ndarray
     duration_shape: float
     favourites: int
     distance_scale: float
@@ -78,6 +87,11 @@ class ActivityParameters:
     staff_days: float = 5.0
     family_share: np.ndarray | None = None  # by year of age
     generation_gap: float = 0.0
+    indoor: bool = True  # False for an activity outdoors: the air is not shared
+    start_mean: np.ndarray | None = None  # by role, weekdays
+    start_peak: np.ndarray | None = None  # by role, weekdays
+    start_mean_weekend: float | None = None
+    start_peak_weekend: float | None = None
 
 
 @dataclass(frozen=True, eq=False)
@@ -119,16 +133,24 @@ def _in_range(today: str, start: str, end: str) -> bool:
 class Childcare:
     """How small children are looked after while their guardian works.
 
-    `alone_from`: the age from which a child may be at home without an adult. `hours`: the opening
-    hours [from, to] of the kindergarten and of the after-school club, by the role code of the
-    child (a child with `aftercare` stays there until the guardian is back, within these hours).
-    `club_share`: the share of the school children young enough to be accompanied who attend
-    the after-school club.
+    `alone_from`: the age from which a child may be at home without an adult for a while (after
+    school, until the guardian is back). `alone_all_day_from`: the age from which a child may
+    spend a whole day at home without an adult (when its school or kindergarten is closed, or it
+    is ill). `hours`: the opening hours [from, to] of the kindergarten and of the after-school
+    club, by the role code of the child (a child with `aftercare` stays there until the guardian
+    is back, within these hours). `club_share`: the share of the school children young enough to
+    be accompanied who attend the after-school club. `grandparent_care` [from age, to age, share]:
+    the children looked after by their grandparents, `grandparent_hours` [from age, to age, mean]
+    their hours a week, gamma distributed with the shape `grandparent_hours_shape`.
     """
 
     alone_from: int
     hours: dict[int, tuple[float, float]]
     club_share: float
+    alone_all_day_from: int = 0
+    grandparent_care: tuple = ()
+    grandparent_hours: tuple = ()
+    grandparent_hours_shape: float = 1.0
 
 
 @dataclass(frozen=True, eq=False)
@@ -150,6 +172,9 @@ class ScheduleParameters:
     late_shift_start: float
     late_shift_end: float
     childcare: "Childcare | None" = None
+    trip_hours: np.ndarray | None = None  # the mean time of a trip by year of age, hours
+    trip_shape: float = 1.0
+    stay_in: np.ndarray | None = None  # by role: a weekday without outings, see `_add_outings`
 
     @property
     def max_events(self) -> int:
@@ -171,7 +196,8 @@ class PersonalTraits:
     [person, weekday/weekend] replace the usual hours and the chance of being at work of the
     people whose job has its own hours (NaN keeps the role's); `age`, `household` and `aftercare`
     (the child stays at kindergarten or in the after-school club until the guardian is back from
-    work) let small children be looked after (see `_look_after_children`).
+    work) let small children be looked after (see `_look_after_children`). `care_host`,
+    `care_choice` and `care_hours` are the grandparent care of children (see `grandparent_care`).
     """
 
     start_habit: np.ndarray
@@ -185,6 +211,9 @@ class PersonalTraits:
     age: np.ndarray | None = None
     household: np.ndarray | None = None
     aftercare: np.ndarray | None = None
+    care_host: np.ndarray | None = None  # see `GrandparentCare`
+    care_choice: np.ndarray | None = None
+    care_hours: np.ndarray | None = None
 
 
 @dataclass
@@ -195,6 +224,10 @@ class DaySchedule:
     infinite column; `codes` are the destinations after each event: HOME, WORK, LUNCH, or
     FIRST_ACTIVITY + the index of an activity. `choice` is today's favourite place per activity
     and `spot_x`, `spot_y` are where in a place a person is today, within the unit disk.
+    `attends` marks who goes to their kindergarten, school or workplace today, `cared` the
+    children who spend a part of the day at their grandparents' (an event of the visit activity).
+    `travel` is the time of the trip that each event begins (hours; NaN for a move at the speed
+    of the person's mode, such as the way to lunch and back).
     """
 
     times: np.ndarray
@@ -203,6 +236,9 @@ class DaySchedule:
     choice: np.ndarray
     spot_x: np.ndarray
     spot_y: np.ndarray
+    attends: np.ndarray | None = None
+    cared: np.ndarray | None = None
+    travel: np.ndarray | None = None
 
 
 def load_schedule_parameters(raw: dict) -> ScheduleParameters:
@@ -240,7 +276,8 @@ def load_schedule_parameters(raw: dict) -> ScheduleParameters:
         lunch_mean_hours=_lunch_hours(raw["lunch"]["duration_mean"]),
         variability=variability,
         activities=tuple(
-            _load_activity(name, values) for name, values in raw["activities"].items()
+            _load_activity(name, values, raw["households"]["partner_age_gap_mean"])
+            for name, values in raw["activities"].items()
         ),
         calendar=_load_calendar(raw["calendar"]),
         weekend_usual_share=weekend["usual_share"],
@@ -251,7 +288,26 @@ def load_schedule_parameters(raw: dict) -> ScheduleParameters:
         late_shift_start=late["start_hours_later"],
         late_shift_end=late["end_hours_later"],
         childcare=childcare,
+        **_load_outings(raw["outings"]),
+        **_load_trips(raw["travel"]),
     )
+
+
+def _load_trips(raw: dict) -> dict:
+    hours = np.full(MAX_AGE_OF_TABLES, np.nan)
+    for start, end, minutes in raw["trip_minutes"]:
+        require(0 <= start < end, "travel.trip_minutes: invalid age range")
+        require_positive("travel.trip_minutes", minutes)
+        hours[int(start) : int(end)] = minutes / 60
+    require(not np.isnan(hours).any(), "travel.trip_minutes must cover every age")
+    require_positive("travel.trip_shape", raw["trip_shape"])
+    return {"trip_hours": hours, "trip_shape": float(raw["trip_shape"])}
+
+
+def _load_outings(raw: dict) -> dict:
+    stay_in = np.array([raw["stay_in"].get(role, 0.0) for role in ROLES])
+    require(((stay_in >= 0) & (stay_in < 1)).all(), "outings.stay_in must be in [0, 1)")
+    return {"stay_in": stay_in}
 
 
 def _load_childcare(raw: dict) -> Childcare:
@@ -262,7 +318,65 @@ def _load_childcare(raw: dict) -> Childcare:
         require(0 <= start < end <= HOURS_PER_DAY, f"childcare.{key}: invalid hours")
         hours[ROLES.index(role)] = (float(start), float(end))
     require_share("childcare.club_share", raw["club_share"])
-    return Childcare(int(raw["alone_from"]), hours, float(raw["club_share"]))
+    require(
+        raw["alone_all_day_from"] >= raw["alone_from"],
+        "childcare.alone_all_day_from must not be below alone_from",
+    )
+    bands = {}
+    for key in ("grandparent_care", "grandparent_hours"):
+        bands[key] = tuple(tuple(float(value) for value in row) for row in raw.get(key, ()))
+        for start, end, value in bands[key]:
+            require(0 <= start < end, f"childcare.{key}: invalid age range")
+            require(value >= 0, f"childcare.{key} must not be negative")
+    for _, _, share in bands["grandparent_care"]:
+        require_share("childcare.grandparent_care", share)
+    shape = raw.get("grandparent_hours_shape", 1.0)
+    require_positive("childcare.grandparent_hours_shape", shape)
+    return Childcare(
+        int(raw["alone_from"]),
+        hours,
+        float(raw["club_share"]),
+        int(raw["alone_all_day_from"]),
+        bands["grandparent_care"],
+        bands["grandparent_hours"],
+        float(shape),
+    )
+
+
+def grandparent_care(guardian, age, kin, hosts, params, rng):
+    """Which children their grandparents look after, and how many hours a week (see `Childcare`).
+
+    `kin` and `hosts` are the kinship and the household of everybody's visit favourites (children
+    have their guardian's). Returns, for everybody, the household of the grandparents (-1 for
+    none), its position among the visit favourites and the hours a week (0 for none).
+    """
+    count = len(age)
+    host, choice = np.full(count, -1, np.int64), np.full(count, -1, np.int64)
+    hours = np.zeros(count)
+    care = params.childcare
+    if care is None or kin is None or not care.grandparent_care:
+        return host, choice, hours
+    children = np.flatnonzero(guardian >= 0)
+    elder = kin[children] == 1
+    has = elder.any(axis=1)
+    first = np.argmax(elder, axis=1)
+    chance = np.zeros(len(children))
+    for start, end, share in care.grandparent_care:
+        band = (age[children] >= start) & (age[children] < end)
+        available = has[band].mean() if band.any() else 0.0
+        chance[band] = min(1.0, share / available) if available > 0 else 0.0
+    mean = np.zeros(len(children))
+    for start, end, value in care.grandparent_hours:
+        mean[(age[children] >= start) & (age[children] < end)] = value
+    shape = care.grandparent_hours_shape
+    drawn = rng.random(len(children)) < chance
+    weekly = rng.gamma(shape, np.maximum(mean, 1e-9) / shape)
+    picked = has & drawn & (mean > 0)
+    cared = children[picked]
+    host[cared] = hosts[cared, first[picked]]
+    choice[cared] = first[picked]
+    hours[cared] = np.minimum(weekly[picked], 40.0)
+    return host, choice, hours
 
 
 def _load_calendar(raw: dict) -> Calendar:
@@ -295,8 +409,20 @@ def _check_activity(name: str, values: dict) -> None:
         isinstance(values["favourites"], int) and values["favourites"] >= 1,
         f"activity {name}: favourites must be a whole number, at least 1",
     )
-    for key in ("duration_mean", "duration_shape", "distance_scale"):
+    for key in ("duration_shape", "distance_scale"):
         require_positive(f"activity {name}: {key}", values[key])
+    durations = values["duration_mean"]
+    for day in DAY_TYPES if isinstance(durations, dict) else ():
+        require_positive(f"activity {name}: duration_mean {day}", durations[day])
+    if not isinstance(durations, dict):
+        require_positive(f"activity {name}: duration_mean", durations)
+    if "start_mean" in values:
+        for key in ("start_mean", "start_peak"):
+            require(set(values[key]) <= set(ROLES), f"activity {name}: {key} of an unknown role")
+            for role, hour in values[key].items():
+                require(0 <= hour < HOURS_PER_DAY, f"activity {name}: {key} {hour} of {role}")
+            weekend = values[f"{key}_weekend"]
+            require(0 <= weekend < HOURS_PER_DAY, f"activity {name}: {key}_weekend")
     if "age_scale" in values:
         require_positive(f"activity {name}: age_scale", values["age_scale"])
     if values["kind"] == "site":
@@ -314,7 +440,7 @@ def _check_activity(name: str, values: dict) -> None:
         for start, end, share in values["family_share"]:
             require(0 <= start < end, f"activity {name}: family_share has an invalid age range")
             require_share(f"activity {name}: family_share", share)
-        require_positive(f"activity {name}: generation_gap", values["generation_gap"])
+        require_positive(f"activity {name}: mothers_age_at_birth", values["mothers_age_at_birth"])
     if "staff_days" in values:
         require(
             0 < values["staff_days"] <= DAYS_PER_WEEK,
@@ -322,7 +448,7 @@ def _check_activity(name: str, values: dict) -> None:
         )
 
 
-def _load_activity(name: str, values: dict) -> ActivityParameters:
+def _load_activity(name: str, values: dict, partner_age_gap: float) -> ActivityParameters:
     window = np.array([values["window"][day] for day in DAY_TYPES], dtype=float)
     if ((window[:, 0] < 0) | (window[:, 0] >= window[:, 1]) | (window[:, 1] > HOURS_PER_DAY)).any():
         raise ValueError(f"invalid window of activity {name}")
@@ -343,7 +469,7 @@ def _load_activity(name: str, values: dict) -> ActivityParameters:
             "age_scale",
             "staff_share",
             "staff_days",
-            "generation_gap",
+            "indoor",
         )
         if key in values
     }
@@ -352,12 +478,22 @@ def _load_activity(name: str, values: dict) -> ActivityParameters:
         for start, end, share in values["family_share"]:
             shares[int(start) : int(end)] = share
         optional["family_share"] = shares
+        # fathers are older than mothers by the partner gap; parents of both sexes are visited
+        optional["generation_gap"] = values["mothers_age_at_birth"] + abs(partner_age_gap) / 2
+    if "start_mean" in values:
+        for key in ("start_mean", "start_peak"):
+            optional[key] = np.array([values[key].get(role, np.nan) for role in ROLES], float)
+            optional[f"{key}_weekend"] = float(values[f"{key}_weekend"])
+    durations = values["duration_mean"]
+    if not isinstance(durations, dict):
+        durations = dict.fromkeys(DAY_TYPES, durations)  # the same on all days
+    durations = [durations[day] for day in DAY_TYPES]
     return ActivityParameters(
         name=name,
         kind=values["kind"],
         window=window,
         probability=probability,
-        duration_mean=values["duration_mean"],
+        duration_mean=np.array(durations, dtype=float),
         duration_shape=values["duration_shape"],
         favourites=values["favourites"],
         distance_scale=values["distance_scale"],
@@ -398,13 +534,17 @@ def draw_day_schedule(
     weekend: bool,
     rng,
     closed: tuple[int, ...] = (),
+    alive: np.ndarray | None = None,
 ) -> DaySchedule:
     """Draw everybody's day: the place of the day, a lunch break, errands and visits.
 
     `closed` are the kinds of places that are closed today. Whoever works at weekends takes
-    weekdays off instead, and on weekend days only they have a place to go.
+    weekdays off instead, and on weekend days only they have a place to go. `alive` marks the
+    living (everybody if None): the dead go nowhere, and nobody counts on them to look after a
+    child. The random numbers drawn do not depend on who is alive.
     """
     count, day = len(role), int(weekend)
+    living = np.ones(count, np.bool_) if alive is None else np.asarray(alive, np.bool_)
     work = params.work_window[role, day]
     if traits.shift_window is not None:
         own = ~np.isnan(traits.shift_window[:, day, 0])
@@ -412,7 +552,7 @@ def draw_day_schedule(
     lunch = params.lunch_window[role, day]
     spread = {key: params.variability[key][role] for key in VARIABILITY_KEYS}
 
-    has_place = ~np.isnan(work[:, 0]) & ~np.isin(traits.place_kind, closed)
+    has_place = ~np.isnan(work[:, 0]) & ~np.isin(traits.place_kind, closed) & living
     days_off = traits.weekend_work * (DAYS_PER_WEEK - WEEKEND_FROM_DAY) / WEEKEND_FROM_DAY
     chance_absent = 1.0 - traits.weekend_work if weekend else spread["absence"] + days_off
     if traits.shift_attendance is not None:
@@ -434,7 +574,10 @@ def draw_day_schedule(
     )
     work_from = np.clip(work_from, 0.0, LATEST_END - MIN_PRESENCE_HOURS)
     work_to = np.clip(np.maximum(work_to, work_from + MIN_PRESENCE_HOURS), 0.0, LATEST_END)
-    absent, attends = _look_after_children(traits, has_place, absent, work_from, work_to, params)
+    care = _look_after_children(
+        traits, role, has_place, absent, work_from, work_to, params, living, rng
+    )
+    absent, attends = care.absent, care.attends
 
     wants_lunch = (
         attends & ~np.isnan(lunch[:, 0]) & (rng.random(count) < params.lunch_probability[role])
@@ -451,9 +594,11 @@ def draw_day_schedule(
 
     times = np.full((count, params.max_events + 1), np.inf)
     codes = np.zeros((count, params.max_events + 1), np.int8)
+    travel = _trip_times(traits, params, count, rng)
+    leaves = np.maximum(work_from - travel[:, 0], 0.0)  # sets off so as to be there on time
     for column, (mask, when, code) in enumerate(
         (
-            (attends, work_from, WORK),
+            (attends, leaves, WORK),
             (has_lunch, lunch_from, LUNCH),
             (has_lunch, lunch_to, WORK),
             (attends, work_to, HOME),
@@ -461,11 +606,16 @@ def draw_day_schedule(
     ):
         times[mask, column] = when[mask]
         codes[:, column] = code
+    travel[:, 1:3] = np.nan  # the lunch break is near the workplace
 
     late = attends & (work_from >= LATE_SHIFT_FROM)
-    busy_until = np.where(attends & ~late, work_to, 0.0)
-    limit = np.where(late, work_from - BUFFER_HOURS, LATEST_END)
-    _add_outings(times, codes, role, traits.sociability, busy_until, limit, params, day, rng)
+    busy_until = np.where(attends & ~late, work_to + travel[:, WORK_EVENTS - 1], 0.0)
+    busy_until = np.maximum(busy_until, care.minding)  # who looks after a child goes out later
+    limit = np.where(late, leaves - BUFFER_HOURS, LATEST_END)
+    sociability = np.where(living, traits.sociability, 0.0)  # the dead have no outings
+    _add_outings(
+        times, codes, role, sociability, busy_until, limit, params, day, rng, attends, travel
+    )
     choice = np.stack(
         [rng.integers(0, activity.favourites, count) for activity in params.activities], axis=1
     )
@@ -473,11 +623,14 @@ def draw_day_schedule(
     angle = rng.random(count) * 2.0 * np.pi
     spot_x, spot_y = distance * np.cos(angle), distance * np.sin(angle)
     children = np.flatnonzero(traits.guardian >= 0)
-    _accompany(times, codes, children, traits.guardian[children], attends, work_to)
+    free_from = np.where(attends, work_to + BUFFER_HOURS, 0.0)
+    free_from[care.children] = care.end + BUFFER_HOURS
+    _accompany(times, codes, children, traits.guardian[children], free_from[children], travel)
     guardians = traits.guardian[children]
     choice[children] = choice[guardians]
     spot_x[children], spot_y[children] = spot_x[guardians], spot_y[guardians]
-    times, codes = sort_events(times, codes)
+    cared = _go_to_grandparents(times, codes, choice, care, attends, params, travel)
+    times, codes, travel = sort_events(times, codes, travel)
     return DaySchedule(
         times=times,
         codes=codes,
@@ -485,22 +638,58 @@ def draw_day_schedule(
         choice=choice,
         spot_x=spot_x,
         spot_y=spot_y,
+        attends=attends,
+        cared=cared,
+        travel=travel,
     )
 
 
-def _look_after_children(traits, has_place, absent, work_from, work_to, params):
-    """Nobody leaves a small child alone; returns who is absent from their place and who attends.
+def _trip_times(traits, params, count, rng) -> np.ndarray:
+    """The time of every trip of everybody's day [person, event], hours: gamma with the mean of
+    the person's age (`params.trip_hours`); 0 everywhere without travel times."""
+    if params.trip_hours is None or traits.age is None:
+        return np.zeros((count, params.max_events + 1))
+    shape = params.trip_shape
+    mean = params.trip_hours[np.minimum(traits.age, MAX_AGE_OF_TABLES - 1)]
+    return rng.gamma(shape, (mean / shape)[:, None], (count, params.max_events + 1))
+
+
+@dataclass
+class ChildcareToday:
+    """Who looks after the children today (see `_look_after_children`): who is absent from their
+    place and who attends; `minding` the hour until which an adult stays at home to look after a
+    child (no outing before it); `children` who spend the hours from `start` to `end` at their
+    grandparents', whose household is their visit favourite `choice`."""
+
+    absent: np.ndarray
+    attends: np.ndarray
+    minding: np.ndarray
+    children: np.ndarray
+    start: np.ndarray
+    end: np.ndarray
+    choice: np.ndarray
+
+
+def _look_after_children(traits, role, has_place, absent, work_from, work_to, params, alive, rng):
+    """Nobody leaves a small child alone (see `ChildcareToday`).
 
     A child with `aftercare` (kindergarten, after-school club) is brought before the guardian
     leaves for work and fetched when the guardian is back, within the opening hours of the place:
-    `work_from` and `work_to` of the child change. A child younger than `alone_from` who would be
-    at home while the guardian works and no other adult of the household is at home keeps the
-    guardian at home that day (who then counts as absent from work).
+    `work_from` and `work_to` of the child change. A child needs an adult while the guardian works
+    when it is younger than `alone_from` and not at its place, or younger than `alone_all_day_from`
+    and does not go to its place today. Then a free living adult of the household looks after it
+    and goes out only when the guardian is back; else the grandparents who look after the child
+    (see `grandparent_care`) take it while the guardian is away, if one of them is free today;
+    else the guardian stays at home (absent from work). Besides, a child with grandparent care goes
+    to them on a day the guardian works, from the end of its kindergarten or school (or when the
+    guardian leaves) until the guardian is back, as often as its hours of care a week say.
     """
     attends = has_place & ~absent
     care = params.childcare
+    nobody = np.zeros(0, np.int64)
+    minding = np.zeros(len(role))
     if care is None or traits.age is None or traits.household is None:
-        return absent, attends
+        return ChildcareToday(absent, attends, minding, nobody, np.zeros(0), np.zeros(0), nobody)
     children = np.flatnonzero(traits.guardian >= 0)
     guardian = traits.guardian[children]
     away_from = work_from[guardian] - BUFFER_HOURS
@@ -510,44 +699,155 @@ def _look_after_children(traits, has_place, absent, work_from, work_to, params):
     for kind, (start, end) in care.hours.items():
         at_place = traits.place_kind[children] == kind
         opens[at_place], closes[at_place] = start, end
+    hours_out = away_to - np.where(attends[children], work_to[children], away_from)
+    with_grandparents = _grandparent_days(traits, children, attends, guardian, hours_out, rng)
     stays = attends[children] & traits.aftercare[children] & attends[guardian]
+    stays &= ~with_grandparents  # the grandparents fetch the child instead
     kept = children[stays]
     work_from[kept] = np.maximum(np.minimum(work_from[kept], away_from[stays]), opens[stays])
     work_to[kept] = np.minimum(np.maximum(work_to[kept], away_to[stays]), closes[stays])
     covered = attends[children] & (work_from[children] <= away_from)
     covered &= work_to[children] >= away_to
-    free_adult = (traits.age >= ADULT_AGE) & ~attends  # (care homes have no children)
-    free = np.bincount(traits.household, weights=free_adult)
+    free = free_adults(traits, attends, alive)
     small = traits.age[children] < care.alone_from
-    alone = small & attends[guardian] & ~covered & (free[traits.household[children]] == 0)
+    young = traits.age[children] < care.alone_all_day_from
+    needs_adult = (small & ~covered) | (young & ~attends[children])
+    gone = attends[guardian]
+    household = traits.household[children]
+    minded = needs_adult & gone & (free[household] > 0) & ~with_grandparents
+    carer = _first_free_adult(traits, attends, alive, role)
+    minders = carer[household[minded]]
+    np.maximum.at(minding, minders, away_to[minded])
+    grandparents = _free_grandparents(traits, attends, alive, role, children)
+    taken = needs_adult & gone & ~minded & (grandparents >= 0)
+    with_grandparents |= taken & (grandparents >= 0)
+    with_grandparents &= gone & (grandparents >= 0)
+    alone = needs_adult & gone & ~minded & ~with_grandparents
     absent = absent.copy()
     absent[guardian[alone]] = True
-    return absent, has_place & ~absent
+    attends = has_place & ~absent
+    cared = with_grandparents & attends[guardian]
+    start = np.where(attends[children], work_to[children], away_from)[cared]
+    end = away_to[cared]
+    keep = end > start + MIN_OUTING_HOURS
+    np.maximum.at(minding, grandparents[cared][keep], end[keep])
+    going = children[cared][keep]
+    choice = traits.care_choice[going] if traits.care_choice is not None else nobody
+    return ChildcareToday(absent, attends, minding, going, start[keep], end[keep], choice)
 
 
-def _accompany(times, codes, children, guardians, attends, work_to) -> None:
-    """Children go out with their guardian, when they are not at school or kindergarten."""
+def _grandparent_days(traits, children, attends, guardian, hours_out, rng) -> np.ndarray:
+    """Which of `children` go to their grandparents today as their weekly hours of care say: on a
+    day the guardian works, with the chance hours a week / (5 * `hours_out`, the hours from the end
+    of the child's day, or the guardian's leaving, to the guardian's return), at most 1."""
+    draw = rng.random(len(children))  # drawn also without care, the same numbers either way
+    if traits.care_hours is None:
+        return np.zeros(len(children), np.bool_)
+    hours = traits.care_hours[children]
+    chance = hours / (5.0 * np.maximum(hours_out, MIN_OUTING_HOURS))
+    return (hours > 0) & attends[guardian] & (hours_out > MIN_OUTING_HOURS) & (draw < chance)
+
+
+def _first_free_adult(traits, attends, alive, role) -> np.ndarray:
+    """For every household, a living adult of it who has no place to go today (-1 for none)."""
+    free = np.flatnonzero(
+        (traits.age >= ADULT_AGE) & ~attends & alive & (role != ROLES.index("resident"))
+    )
+    first = np.full(int(traits.household.max()) + 1, -1, np.int64)
+    first[traits.household[free[::-1]]] = free[::-1]
+    return first
+
+
+def _free_grandparents(traits, attends, alive, role, children) -> np.ndarray:
+    """For every child, a free living adult of the household of its grandparents who look after
+    it (-1 if it has no such care or none of them is free today)."""
+    if traits.care_host is None:
+        return np.full(len(children), -1, np.int64)
+    host = traits.care_host[children]
+    first = _first_free_adult(traits, attends, alive, role)
+    return np.where(host >= 0, first[np.maximum(host, 0)], -1)
+
+
+def _go_to_grandparents(times, codes, choice, care, attends, params, travel) -> np.ndarray:
+    """Write the hours at the grandparents' into the days of the children of `care`: from the end
+    of their kindergarten or school (or the guardian's leaving) to the guardian's return, as an
+    event of the visit activity to the favourite that is the grandparents' household. Such a child
+    does not join another visit of its guardian that day. Returns who goes."""
+    cared = np.zeros(times.shape[0], np.bool_)
+    visits = [index for index, a in enumerate(params.activities) if a.kind == "visit"]
+    if not len(care.children) or not visits:
+        return cared
+    children, visit = care.children, visits[0]
+    code = FIRST_ACTIVITY + visit
+    for column in range(WORK_EVENTS, times.shape[1] - 1, 2):
+        joined = codes[children, column] == code
+        times[children[joined], column : column + 2] = np.inf
+    at_place = attends[children]
+    # after kindergarten or school: the event of going home becomes going to the grandparents
+    goes = children[at_place]
+    codes[goes, WORK_EVENTS - 1] = code
+    times[goes, 1], codes[goes, 1] = care.end[at_place], HOME
+    travel[goes, 1] = travel[goes, WORK_EVENTS - 1]  # as long back as there
+    # a day without its place: the first and the last event of a work day carry the hours
+    stays = children[~at_place]
+    times[stays, 0], codes[stays, 0] = care.start[~at_place], code
+    times[stays, WORK_EVENTS - 1] = care.end[~at_place]
+    codes[stays, WORK_EVENTS - 1] = HOME
+    choice[children, visit] = care.choice
+    cared[children] = True
+    return cared
+
+
+def free_adults(traits, attends: np.ndarray, alive: np.ndarray) -> np.ndarray:
+    """The living adults of each household who do not go to a place today (care homes have no
+    children, so their residents do not matter)."""
+    free_adult = (traits.age >= ADULT_AGE) & ~attends & alive
+    return np.bincount(traits.household, weights=free_adult)
+
+
+def _accompany(times, codes, children, guardians, free_from, travel=None) -> None:
+    """Children go out with their guardian when they are free (from `free_from`, the end of their
+    kindergarten or school, or of their time at the grandparents'): an outing that has begun by
+    then is joined when the child is fetched, if enough of it is left."""
     times[children, WORK_EVENTS:] = times[guardians, WORK_EVENTS:]
     codes[children, WORK_EVENTS:] = codes[guardians, WORK_EVENTS:]
-    free_from = np.where(attends[children], work_to[children] + BUFFER_HOURS, 0.0)
+    if travel is not None:  # they travel together
+        travel[children, WORK_EVENTS:] = travel[guardians, WORK_EVENTS:]
     for column in range(WORK_EVENTS, times.shape[1] - 1, 2):
-        clash = times[children, column] < free_from
-        times[children[clash], column : column + 2] = np.inf
+        begins, ends = times[children, column], times[children, column + 1]
+        late = begins < free_from
+        joins = late & (ends - free_from >= MIN_OUTING_HOURS)
+        times[children[joins], column] = free_from[joins]
+        times[children[late & ~joins], column : column + 2] = np.inf
 
 
-def _add_outings(times, codes, role, sociability, busy_until, limit, params, day, rng) -> None:
-    """Add errands and visits one after another; one that ends after `limit` is dropped."""
+def _add_outings(
+    times, codes, role, sociability, busy_until, limit, params, day, rng, attends=None, travel=None
+) -> None:
+    """Add errands and visits one after another; one that ends after `limit` is dropped. With
+    `travel` (the times of the trips, see `DaySchedule`) an outing lasts its length at the place:
+    the person leaves it the trip there plus the length after setting off, and is back home the
+    trip back later.
+
+    On weekdays a share `params.stay_in` of the people with no place to go today (`attends` False)
+    does not leave home at all; the outings of the others of their role are likelier by as much, so
+    that the time a role spends out stays what the probabilities say.
+    """
     count, activities = len(role), len(params.activities)
+    scale = np.ones(count)
+    if day == 0 and params.stay_in is not None and attends is not None:
+        free = ~attends
+        stay_in = params.stay_in[role]
+        stays = free & (rng.random(count) < stay_in)
+        scale = np.where(free, np.where(stays, 0.0, 1.0 / (1.0 - stay_in)), 1.0)
     starts = np.full((count, activities), np.inf)
     durations = np.zeros((count, activities))
     for index, activity in enumerate(params.activities):
-        chance = np.minimum(activity.probability[role, day] * sociability, 1.0)
-        window = activity.window[day]
-        start = rng.uniform(window[0], window[1], count)
+        chance = np.minimum(activity.probability[role, day] * sociability * scale, 1.0)
+        start = _outing_starts(activity, role, day, rng)
+        mean = activity.duration_mean[day]
         durations[:, index] = np.clip(
-            rng.gamma(
-                activity.duration_shape, activity.duration_mean / activity.duration_shape, count
-            ),
+            rng.gamma(activity.duration_shape, mean / activity.duration_shape, count),
             MIN_OUTING_HOURS,
             MAX_OUTING_HOURS,
         )
@@ -555,14 +855,37 @@ def _add_outings(times, codes, role, sociability, busy_until, limit, params, day
     rows = np.arange(count)
     busy_until = busy_until + BUFFER_HOURS
     for rank, activity_index in enumerate(np.argsort(starts, axis=1, kind="stable").T):
-        start = np.maximum(starts[rows, activity_index], busy_until)
-        end = start + durations[rows, activity_index]
-        valid = np.isfinite(starts[rows, activity_index]) & (end <= limit)
         column = WORK_EVENTS + 2 * rank
+        there = travel[:, column] if travel is not None else 0.0
+        back = travel[:, column + 1] if travel is not None else 0.0
+        start = np.maximum(starts[rows, activity_index], busy_until)
+        end = start + there + durations[rows, activity_index]
+        valid = np.isfinite(starts[rows, activity_index]) & (end + back <= limit)
         times[valid, column] = start[valid]
         times[valid, column + 1] = end[valid]
         codes[:, column] = FIRST_ACTIVITY + activity_index
-        busy_until = np.where(valid, end + BUFFER_HOURS, busy_until)
+        busy_until = np.where(valid, end + back + BUFFER_HOURS, busy_until)
+
+
+def _outing_starts(activity, role, day, rng) -> np.ndarray:
+    """When everybody would begin the activity today: uniform in its window, or triangular within
+    it (see `ActivityParameters`): from the opening, with its mode where the outings that begin
+    there are under way at the middle of the peak hour, and with the mean of the role."""
+    low, high = activity.window[day]
+    count = len(role)
+    if activity.start_mean is None:
+        return rng.uniform(low, high, count)
+    if day == 0:
+        mean, peak = activity.start_mean[role], activity.start_peak[role]
+    else:
+        mean = np.full(count, activity.start_mean_weekend)
+        peak = np.full(count, activity.start_peak_weekend)
+    known = ~np.isnan(mean)
+    start = rng.uniform(low, high, count)  # a role without hours of its own
+    mode = np.clip(peak[known] + 0.5 - activity.duration_mean[day] / 2, low, high)
+    right = np.clip(3 * mean[known] - low - mode, mode + 1e-6, high)
+    start[known] = rng.triangular(low, mode, right)
+    return start
 
 
 def destination_codes_at(schedule: DaySchedule, hour: float, max_events: int) -> np.ndarray:

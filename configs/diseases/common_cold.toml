@@ -1,37 +1,71 @@
-# Common cold caused by rhinoviruses (SIS): rhinovirus infection leaves immunity only against the one
+# Common cold caused by rhinoviruses (SIRS): rhinovirus infection leaves immunity only against the one
 # type that caused it, and there are more than 100 types (Heikkinen and Jarvinen 2003, Lancet), so
-# for the pool of types a person is susceptible again once the infection is over and the disease
-# stays in a population. The model has no latent stage: the first symptoms come about 2 days after
-# infection (median 1.9 days, Lessler et al. 2009, Lancet Infect Dis) and the virus is found in the
+# for the pool of types a person is susceptible again a short time after an infection and the
+# disease stays in a population. The model has no latent stage: the first symptoms come about 2 days
+# after infection (median 1.9 days, Lessler et al. 2009, Lancet Infect Dis) and the virus is found in the
 # nose within 8-10 hours (Heikkinen and Jarvinen 2003), so infectiousness starts early. A share of the
 # infections never has symptoms (they spread less and behave as usual). The model has no seasons and
 # does not tell the types apart. Tags: Source = a published number, Derived =
 # computed from sources, Fitted = tuned in the model to a published target (the targets are in
 # [targets] below; `python -m epidemic_sandbox.analysis.calibrate common_cold` measures them), Estimate = no
 # number found, so a reasoned guess (the reasoning is given), Model = a modelling convention.
-model = "sis"
+# Known limitations (wave 2): all targets are met at the fitted values (incidence 2.59 a year against 2.7,
+# 3.81 at 5-17 against 4.0, household attack rate 0.37 against 0.374; by age 0-4 3.6, 18-29 3.2, 30-49 2.8,
+# 50-64 2.2, 65-79 1.1, 80+ 0.8, 3 runs of 300 days, 10,000 people). But the reproduction number of the
+# town is 0.84-0.98, near or below 1: the cold persists through the infections from outside
+# (outside_infections, an Estimate); in a closed town of 3,000 (6 runs of a year) it persisted in 1 run and
+# the incidence was 1.1 a year. The room route is fitted (no emission rate of rhinovirus was found).
+model = "sirs"
 # Model: a scenario choice, not a property of the disease.
 initial_infected = 100
 enabled = true
 
 [parameters]
-# Fitted: the per-day chance of passing the virus to a member of the own household; the target is
-#   the household attack rate (targets.household_attack_rate). Measured (16 runs of 21 days, the
-#   follow-up of the study, within households only, the first cases not counted again, with the
-#   age effect and the infections without symptoms below): 0.104 gives 36.2 %, 0.108 36.2 %, 0.115
-#   39.3 % (standard error about 1.7 points).
-transmission = 0.108
+# Fitted: the chance per day of exposure at full weight (close range) of passing the virus; fitted
+#   with room_exposure and the susceptibility of school-age children below, alternating, to the
+#   household attack rate (targets.household_attack_rate, first cases under 16 as in the study, 21
+#   days), the incidence per person and year and that of children of 5-17 (`calibrate common_cold --fit
+#   transmission=household_attack_rate --fit room_exposure=incidence_per_person_year --fit
+#   age.susceptibility.5-18=incidence_5_17`; incidence counted as episodes, 12 days; endemic runs of 300
+#   days in a town of 10,000, 3 runs, the first 100 days left out; wave 2). Measured at 0.3554,
+#   room_exposure 0.0719 and 0.498: see the targets.
+transmission = 0.3554
 # Model: the 2 m of the setting's own description of droplet spread; rhinoviruses also spread by
 #   hands and surfaces (Heikkinen and Jarvinen 2003), which the model does not have.
 contact_distance = 2.0
-# Fitted: how much more easily the virus passes between people of different households than within
-#   one per hour within contact distance; the target is how often people are infected in a year
-#   (targets.incidence_per_person_year). Measured (8 runs of 300 days in a town of 30,000 started
-#   from 5 % infected, the first 100 days left out, with the age effect and the infections from
-#   outside and without symptoms below): 3.6 gives 2.45 and 3.7 2.8 infections a year; by age at 3.7:
-#   0-4 years 5.7, 5-17 4.4, 18-29 3.3, 30-49 3.1, 50-64 2.1, 65-79 1.1. The cold is near its
-#   threshold: the rate falls steeply below this value.
-community_factor = 3.65
+# Source: exposure is weighted by the distance of the two people: 1 up to near_distance, falling with
+#   the inverse square of the distance beyond it, 0 beyond contact_distance. The NHS COVID-19 app
+#   scored the proximity of an exposure as "constant below 1 m and decreased as the inverse square of
+#   the distance if greater than 1 m", and its scores were proportional to the probability of
+#   transmission: "Longer exposures at greater distances had risk similar to that of shorter
+#   exposures at closer distances" (Ferretti et al. 2024, Nature 626:145, for SARS-CoV-2; none for
+#   the other droplet diseases was found, so the same distance weighting is used).
+near_distance = 1.0
+# Source for 1: the risk of infection per hour of exposure is the same in every setting; households
+#   dominate transmission through the long duration and the closeness of their exposures, not through
+#   a higher hazard (Ferretti et al. 2024, Nature 626:145: "The long duration of household
+#   exposures - 33 h on average - and their closer proximity explain their disproportionate role").
+#   No source gives another factor for this disease, so none is used.
+community_factor = 1.0
+# Fitted (to the incidence per person and year): everybody of an indoor venue is exposed to every
+#   infectious person of the venue at any distance with this multiple of the close-range hazard at full
+#   weight. Direction from a source: "rhinovirus transmission, at least in adults, occurs chiefly by the
+#   aerosol route" (Dick et al. 1987, J Infect Dis 156:442, men playing cards for 12 hours; abstract
+#   as given by a search summary); the size is fitted, no emission rate of rhinovirus was found, so
+#   no range: 0.0719 x 0.3554 per day / 24 = 0.0011 per hour and infectious person (inside the COVID-19
+#   range of 0.00026-0.021 per hour). Without it the cold had 0.94 infections a year (target 2.7).
+room_exposure = 0.0719
+# Derived: the emission of an infectious person who is asleep relative to awake. The aerosol that people
+#   breathe out is measured by activity (Morawska et al. 2009, as used by Buonanno et al. 2020, Environ
+#   Int 141:105794, Table 1: droplets of 0.8, 1.8, 3.5 and 5.5 um per cm3, breathing 0.084, 0.009, 0.003,
+#   0.002; voiced counting 0.236, 0.068, 0.007, 0.011; whispered counting 0.110, 0.014, 0.004, 0.002).
+#   Weighted by the volume of a droplet (D^3) and the inhalation rate (0.49 m3/h at rest, 0.54 standing),
+#   breathing at rest emits 0.29 x 0.49 against 1.39 x 0.54 for talking: 1 : 5.2. Awake is taken as
+#   talking (Burridge et al. 2021, arXiv 2009.02999: 5 quanta/h talking, 1 quiet), so asleep is 1 / 5.2 =
+#   0.2. Applies to the close range and to the shared air alike, to everybody at home in the sleeping
+#   hours of the dwellings (town.toml). Measured on healthy people, so not specific to the virus
+#   (Estimate for the other diseases of the town: the same physics).
+asleep_emission = 0.2
 # Estimate: the infection period inferred from US specimen data was 5.2 to 5.6 days in the four
 #   estimates for rhinovirus outbreaks (mean 5.4; Reis and Shaman 2018, Infect Dis Model, Table 5),
 #   near the middle of the 3 to 8 days of their prior, which the estimate was sensitive to. Virus
@@ -47,17 +81,19 @@ duration_shape = 3.2
 #   Jarvinen 2003) and no figure for deaths in the community was found; left at 0 rather than
 #   invented.
 fatality = 0.0
-# Derived: 44.5 % of 2,505 US adults reported absence from work or school during a cold, usually 1
-#   to 2 days (Dicpinigaitis et al. 2015, Curr Med Res Opin, ACHOO survey); staying home 1.5 of the
-#   5.4 days is 0.445 x 1.5 / 5.4 = 0.12 of the time of those with a cold, as staying home for the
-#   whole infectious time (the average over the time is what counts). People without symptoms
-#   behave as usual.
-stay_home = 0.12
-# Estimate: of those who go out, some skip leisure and errands. People ill with influenza-like
-#   illness skip leisure in a third of cases (Van Kerckhove et al. 2013, Am J Epidemiol); colds keep
-#   people at home half as often as influenza-like illness (44.5 % against 91 %), so the same ratio:
-#   0.33 x 0.445 / 0.91 = 0.16 of those with a cold.
-limit_outings = 0.16
+# Derived (the rule for the behaviour of the ill in every disease file, see influenza.toml): in the
+#   Flu Watch cohort, adults of 16-64 years took time off work in 11 % of the acute respiratory
+#   illnesses that were not influenza-like (colds), children in 14 % (the age effect below), for
+#   2.5 days on average (Fragaszy et al. 2018, Influenza Other Respir Viruses 12:171, Table 2,
+#   "ARI"), which cover 2.5 / 5.4 = 0.46 of the infectious days: 0.11 x 0.46 = 0.05. (The earlier
+#   value came from a survey of absence "during a cold" in general, Dicpinigaitis et al. 2015, not
+#   per episode.) People without symptoms behave as usual.
+stay_home = 0.05
+# Estimate: of the ill who still go out, a third skip leisure (people with influenza-like illness
+#   cut contacts at leisure to 0.06 and at work or school to 0.09 of the usual, Van Kerckhove et al.
+#   2013, Am J Epidemiol: 1 - 0.06 / 0.09; the full text was not available to the reviewer; taken
+#   for colds too, no measurement for them was found), with the coverage above: 0.33 x 0.46 = 0.15.
+limit_outings = 0.15
 # Source: 44 % of the rhinovirus episodes found by weekly swabs of whole households had no symptoms
 #   (56 % with symptoms; Byington et al. 2015, Clin Infect Dis 61:1217, as summed up in the editorial
 #   of the same issue, p. 1225).
@@ -71,30 +107,49 @@ asymptomatic_share = 0.44
 asymptomatic_infectiousness = 0.52
 # Estimate: no length of rhinovirus infection without symptoms was found; the same as with symptoms.
 asymptomatic_days = 5.4
-# Derived: the town has all its workplaces, but 40.9 % of the employed in Czechia work outside the
-#   municipality where they live (census 2021, CZSO, "Ctyri z deseti zamestnanych vyjizdi za praci
-#   mimo obec obvykleho bydliste"), where colds go round as much as at home. 13.1 % of the infections
-#   of the town happen at work and lunch (python -m epidemic_sandbox.analysis.calibrate common_cold), so 0.409
-#   x 0.131 = 5.4 % of them would come from outside: 0.054 x 2.7 = 0.145 per person and year. They
-#   keep the cold in the town: a closed town of 3,000 lost it by chance in 6 of 16 runs of a year,
-#   with them in none of 16.
-outside_infections = 0.145
+# Estimate (to re-derive in wave 2 from the new town): the town has all its workplaces, but 40.9 %
+#   of the employed in Czechia work outside the municipality where they live (census 2021, CZSO,
+#   "Ctyri z deseti zamestnanych vyjizdi za praci mimo obec obvykleho bydliste"), and as many
+#   people of other places work in a town as commute out of it, so the colleagues a closed town
+#   lacks bring colds from outside. 13.1 % of the infections of the earlier town happened at work
+#   and lunch, so 0.409 x 0.131 = 5.4 % of them, 0.054 x 2.7 = 0.145 per person and year, would come
+#   from outside; they come to people of working age (the age effect below), 62 % of the town:
+#   0.145 / 0.62 = 0.234 per person of 18-64 and year. Children and the retired get none: no source
+#   for their contacts outside the town was found. They keep the cold in the town: a closed town of
+#   3,000 lost it by chance in 6 of 16 runs of a year, with them in none of 16.
+outside_infections = 0.234
 # Not found: a measured variation of susceptibility between people. Left at 0: any other number
 #   would be an invention.
 susceptibility_cv = 0.0
 # Model: no dispersion of the number of people one case infects is published for rhinovirus; none
 #   is added to the variation the town itself makes.
 infectiousness_dispersion = 0.0
+# Estimate: protection after an infection. Rhinovirus reinfections in households followed for 6
+#   months were "almost invariably heterotypic, indicative of lasting type-specific immunity and low
+#   cross-type protection", and "duration of immunity to heterologous types is short and at most of
+#   the order of weeks" (Kamau et al. 2019, J Infect Dis 219:1049); one type circulated in a household
+#   for a median of 8 days (range 1-40, same study). Two weeks: protected while the household chain
+#   of the same type goes on, susceptible to other types after it. Without it, a quarter of the
+#   infections of the town started within 12 days of the person's previous one, and 6 % came back
+#   from the very person they had infected.
+immunity_days = 14
+immunity_protection = 1.0
 
 [age_effects]
-# Fitted: the susceptibility of children of school age (5-17) relative to everybody else; the
-#   target is their rate of infection (targets.incidence_5_17). With everybody equally susceptible
-#   they caught twice as many (8.7 a year against 5.7 at 0-4 and 3.2 at 30-49), where the families
-#   followed by Byington et al. 2015 had 6.4 at 0-4, 4.0 at 5-17 and 3.3 at 18-39: immunity to the
-#   #   types already met grows with age, and the school-age children of the town meet many. Measured
-#   (as for community_factor): 0.55 brings them to 5.0 at 2.6. The contacts of every age are
-#   validated (python -m epidemic_sandbox.analysis.validate), so the difference is put on susceptibility.
-susceptibility = [[5, 18, 0.55]]
+# Fitted: the susceptibility of children of school age (5-17) relative to everybody else; the target
+#   is their rate of infection (targets.incidence_5_17). Children of the town meet many people (school),
+#   where the families followed by Byington et al. 2015 had 6.4 at 0-4, 4.0 at 5-17 and 3.3 at 18-39:
+#   immunity to the types already met grows with age, and the school-age children of the town meet
+#   many. Fitted to 0.498 (see transmission).
+susceptibility = [[5, 18, 0.498]]
+# Derived: children of 0-15 years took time off school or childcare in 14 % of the acute
+#   respiratory illnesses that were not influenza-like, adults of 16-64 years in 11 % (Fragaszy et
+#   al. 2018, Table 2, "ARI"): 14 / 11 = 1.273. Estimate: people of 65 and older as the adults
+#   (Fragaszy's 5 % of the 65+ is time off work of the few who work).
+stay_home = [[0, 16, 1.273]]
+# Estimate: the infections from outside come to people of working age only (see
+#   outside_infections).
+outside_infections = [[0, 18, 0.0], [65, 120, 0.0]]
 
 # What the Fitted values were fitted to, and what the disease is checked against (not fitted).
 [targets.household_attack_rate]
@@ -107,17 +162,25 @@ low = 0.20
 high = 0.55
 source = "Peltola et al. 2008, J Infect Dis 197:382"
 days = 21
+# the index cases of the study were children hospitalised for any infection, the contacts their
+# siblings and parents
+index_ages = [0, 16]
 [targets.incidence_per_person_year]
 # Derived: rhinovirus detection episodes (with and without symptoms) per person and year in
 # households with children, weekly PCR: by age 0-4 6.4, 5-17 4.0, 18-39 3.3, 40+ 1.75 (all viruses
 # 12.1, 7.5, 6.3 and 3.3, times the rhinovirus share of the episodes, 416 of 783; Byington et al.
-# 2015), weighted by the age structure of Czechia: 2.7. Low end: colds of adults 2-4 and children
+# 2015), weighted by the age structure of Czechia: 2.7. An episode is ">=1 consecutive weeks in
+# which the same virus was detected" (weekly swabs), so infections of a person that start within
+# the time a rhinovirus stays detectable after the previous one, 12 days (Derived: "rhinovirus
+# shedding lasts on average 10-14 days", Kamau et al. 2019; mean detection under 2 weeks, Byington
+# et al.), are counted as one (episode_days). Low end: colds of adults 2-4 and children
 # 6-8 a year, rhinoviruses 30-50 % of them, 75 % of infections with symptoms (Heikkinen and
 # Jarvinen 2003), about 1.2 for the town; high end: the 3.9 of the households with children.
 value = 2.7
 low = 1.2
 high = 3.9
 source = "Byington et al. 2015, Clin Infect Dis 61:1217; Heikkinen and Jarvinen 2003"
+episode_days = 12
 [targets.incidence_5_17]
 # Derived: 4.0 rhinovirus episodes per child and year at 5-17 in the households of Byington et al.
 # 2015 (7.5 for all viruses times 416 of 783); the range is that of children's colds, 6-8 a year,
@@ -127,3 +190,4 @@ value = 4.0
 low = 2.4
 high = 5.3
 source = "Byington et al. 2015, Clin Infect Dis 61:1217; Heikkinen and Jarvinen 2003"
+episode_days = 12

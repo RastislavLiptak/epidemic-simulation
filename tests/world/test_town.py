@@ -57,11 +57,13 @@ def distance_to_place(town):
 
 
 def test_demo_town_parameters_load():
-    assert set(PARAMS.places) == {"preschool", "school", "university", "work"}
+    assert set(PARAMS.places) == {"preschool", "basic", "secondary", "university", "work"}
     assert {activity.name for activity in PARAMS.schedule.activities} == {
         "shopping",
         "food",
-        "walk",
+        "services",
+        "outdoor",
+        "culture",
         "visit",
     }
 
@@ -71,11 +73,11 @@ def test_demo_town_parameters_load():
     [
         ("work = [7, 16]", "work = [16, 7]", "invalid hours"),
         ("work = [7, 16]", "work = [7, 30]", "invalid hours"),
-        ("absence = 0.05", "absence = 1.5", "between 0 and 1"),
+        ("absence = 0.079", "absence = 1.5", "between 0 and 1"),
         ('kind = "visit"', 'kind = "nonsense"', "kind must be"),
         (
-            "[places.work]\nsolo_share = 0.20\nmean_size = ",
-            "[places.work]\nsolo_share = 0.20\nmean_size = -",
+            "[places.work]\nsolo_share = 0.132\nmean_size = ",
+            "[places.work]\nsolo_share = 0.132\nmean_size = -",
             "mean_size must be positive",
         ),
         ("area_mean = 14.0", "area_mean = 0", "area_mean must be positive"),
@@ -86,11 +88,18 @@ def test_demo_town_parameters_load():
         ("walk = 4.5", "walk = -4.5", "speeds must be positive"),
         ("mean_regulars = 315", "mean_regulars = 0", "mean_regulars must be positive"),
         ("favourites = 3", "favourites = 0", "favourites must be a whole number"),
-        ("duration_mean = 0.93", "duration_mean = 0", "duration_mean must be positive"),
-        ("class_size = 22", "class_size = 0", "class_size must be at least 1"),
+        (
+            "duration_mean = { weekday = 0.84",
+            "duration_mean = { weekday = 0",
+            "duration_mean weekday must be positive",
+        ),
+        ("class_size = 22.6", "class_size = 0", "class_size must be at least 1"),
+        ("team_size = 10", "team_size = 0", "team_size must be positive"),
+        ("together_share = 0.8", "together_share = 1.5", "together_share"),
+        ("seats = [0.65, 1.9, 1.1]", "seats = [0.65, 1.9]", "seats"),
         ("[lunch]\nduration_mean = 0.75", "[lunch]\nduration_mean = 0", "lunch duration_mean"),
         ("remote_share = 0.046", "remote_share = 2", "remote_share must be between"),
-        ("radius = 0.5 ", "radius = 0 ", "households.radius must be positive"),
+        ("common_area = 4.0", "common_area = 0", "common_area must be positive"),
     ],
 )
 def test_invalid_town_settings_are_rejected(tmp_path, old, new, message):
@@ -110,15 +119,30 @@ def test_everybody_lives_inside_the_arena_and_has_all_traits():
     assert len(town.start_habit) == len(town.weekend_work) == 30_000
 
 
-def test_household_members_are_within_the_household_radius_of_the_same_point():
+def test_couples_share_a_bed_and_the_others_sleep_in_bedrooms_around_the_common_room():
     town = town_of()
-    for household in range(50):
-        members = np.flatnonzero(town.household == household)
-        spread = np.hypot(
-            town.home_x[members, None] - town.home_x[None, members],
-            town.home_y[members, None] - town.home_y[None, members],
-        )
-        assert spread.max() <= 2 * PARAMS.population.household_radius + 1e-9
+    dwelling = PARAMS.dwelling
+    private = town.role != RESIDENT
+    couples = np.flatnonzero((town.partner >= 0) & private)
+    bed = np.hypot(
+        town.home_x[couples] - town.home_x[town.partner[couples]],
+        town.home_y[couples] - town.home_y[town.partner[couples]],
+    )
+    assert bed.max() <= dwelling.bed_gap + 1e-6
+    to_common = np.hypot(town.home_x - town.home_center_x, town.home_y - town.home_center_y)
+    assert np.abs(to_common[private] - dwelling.bedroom_distance).max() < 3 * dwelling.room_bed_gap
+    assert town.home_radius[private] == pytest.approx(dwelling.common_radius)
+    # the children of a family with as many bedrooms as sleepers sleep apart from their parents
+    alone_in_room = np.flatnonzero(private & (town.partner < 0) & (town.age < 18))
+    parents = town.partner >= 0
+    first_parent = np.full(town.household.max() + 1, -1)
+    first_parent[town.household[parents]] = np.flatnonzero(parents)
+    with_parents = alone_in_room[first_parent[town.household[alone_in_room]] >= 0]
+    gap = np.hypot(
+        town.home_x[with_parents] - town.home_x[first_parent[town.household[with_parents]]],
+        town.home_y[with_parents] - town.home_y[first_parent[town.household[with_parents]]],
+    )
+    assert (gap > 2.0).mean() > 0.9
 
 
 def test_homes_are_denser_in_the_core():
@@ -128,19 +152,30 @@ def test_homes_are_denser_in_the_core():
     assert center.mean() > 2 * uniform_share
 
 
-def test_floor_space_per_person_is_a_property_of_the_place_and_sets_how_crowded_it_is():
+def test_pupils_sit_at_double_desks_and_workers_at_desks_in_a_grid():
     town = town_of(population=12_000)
-    radius = 1.5  # within a class, which is a venue of its own (a class of 20 has a radius of 4 m)
-    expected = {}
-    for kind, role in (("work", WORKER), ("school", SCHOOL)):
-        members = town.role == role
-        measured = mean_contacts_at(
-            town.work_x, town.work_y, members, ARENA, town.work_venue, radius
-        )
-        expected[kind] = measured
-        area = PARAMS.places[kind].area_mean
-        assert measured == pytest.approx(math.pi * radius**2 / area, rel=0.5)
-    assert expected["school"] > 2 * expected["work"]
+    pupils = np.flatnonzero((town.role == SCHOOL) & town.seat_fixed)
+    workers = np.flatnonzero(
+        (town.role == WORKER) & (town.place_kind == WORKER) & (town.work_people > 1)
+    )
+    workers = workers[~town.activity_staff[workers]]
+    for members, nearest_expected in (
+        (pupils, PARAMS.places["basic"].seats[0]),
+        (workers, PARAMS.places["work"].desk_spacing),
+    ):
+        sample = members[:400]
+        nearest = []
+        for person in sample:
+            same = members[town.work_venue[members] == town.work_venue[person]]
+            same = same[same != person]
+            if len(same):
+                nearest.append(
+                    np.hypot(
+                        town.work_x[same] - town.work_x[person],
+                        town.work_y[same] - town.work_y[person],
+                    ).min()
+                )
+        assert np.median(nearest) == pytest.approx(nearest_expected, abs=0.05)
 
 
 @pytest.mark.parametrize("role", [PRESCHOOL, SCHOOL, UNIVERSITY, WORKER])
@@ -193,18 +228,36 @@ def test_teachers_are_workers_placed_with_the_pupils():
     teachers = town.at_school & (town.role == WORKER)
     pupils = np.isin(town.role, (PRESCHOOL, SCHOOL, UNIVERSITY))
     assert 0.02 * pupils.sum() < teachers.sum() < 0.15 * pupils.sum()
-    assert town.age[teachers].min() >= 25
+    assert town.age[teachers & (town.place_kind == PRESCHOOL)].min() >= 19
+    assert town.age[teachers & (town.place_kind == SCHOOL)].min() >= 24
     assert town.at_school[pupils].all()
 
 
-def test_classes_consist_of_children_of_the_same_age():
+def test_subject_teachers_go_from_class_to_class_and_young_classes_have_their_own():
+    town = town_of(population=20_000)
+    rotation = town.rotation
+    assert len(rotation.teacher) > 0
+    assert (town.role[rotation.teacher] == WORKER).all()
+    chosen = rotation.assign(np.ones(len(rotation.teacher), np.bool_), np.random.default_rng(0))
+    taught = chosen[chosen >= 0]
+    assert len(np.unique(taught)) == len(taught)  # one teacher in a class at a time
+    classes = rotation.start[1:] - rotation.start[:-1]
+    teachers = np.bincount(rotation.school, minlength=len(classes))
+    assert ((teachers >= classes) | (classes == 0)).all()
+    young = (town.role == SCHOOL) & (town.age < 10)
+    venues = np.unique(town.work_venue[young])
+    assert not np.isin(venues, rotation.class_venue).any()
+
+
+def test_classes_consist_of_children_of_the_same_age_and_are_not_tiny():
     town = town_of(population=30_000)
     pupils = np.flatnonzero(town.role == SCHOOL)
-    key = np.round(town.work_x[pupils], 3) * 1e7 + np.round(town.work_y[pupils], 3)
-    classmates = {}
-    for person, place in zip(pupils, key, strict=True):
-        classmates.setdefault(place, []).append(town.age[person])
-    assert np.mean([len(set(ages)) for ages in classmates.values()]) < 3
+    ages = {}
+    for person in pupils:
+        ages.setdefault(town.work_venue[person], []).append(town.age[person])
+    assert np.mean([len(set(values)) for values in ages.values()]) < 2
+    sizes = np.array([len(values) for values in ages.values()])
+    assert (sizes >= PARAMS.places["basic"].min_class_size).mean() > 0.95
 
 
 def test_every_activity_has_favourite_places_for_everybody():
@@ -390,19 +443,17 @@ def test_care_homes_are_places_of_old_people_with_their_staff():
     homes, sizes = np.unique(town.household[residents], return_counts=True)
     assert sizes.mean() == pytest.approx(66, rel=0.25)
     staff = (town.place_kind == RESIDENT) & (town.role == WORKER)
-    # enough staff for `staff_per_resident` of them to be on the day shift on any day
+    # `staff_per_resident` of them (head count of the day shifts) per resident: 0.40 against the
+    # 0.574 of all shifts (31,646 care staff for 55,108 residents), not one per resident
     care = PARAMS.care_home
-    assert staff.sum() * care.attendance == pytest.approx(
-        care.staff_per_resident * residents.sum(), rel=0.1
-    )
+    assert staff.sum() == pytest.approx(care.staff_per_resident * residents.sum(), rel=0.1)
+    assert staff.sum() < 0.574 * residents.sum()
     assert (town.shift_window[staff] == care.shift_hours).all()
     assert (town.sex[staff] == FEMALE).mean() > 0.75
-    first = town.household == homes[0]
-    room = np.hypot(
-        town.home_x[first] - town.home_x[first].mean(),
-        town.home_y[first] - town.home_y[first].mean(),
-    )
-    assert room.max() > 2 * PARAMS.population.household_radius
+    assert town.bedridden[residents].mean() == pytest.approx(care.bedridden_share, abs=0.05)
+    wards, in_ward = np.unique(town.ward_venue[residents], return_counts=True)
+    assert in_ward.mean() == pytest.approx(care.ward_size, rel=0.35)
+    assert (town.room_venue[residents] >= 0).all() and not town.bedridden[~residents].any()
 
 
 def test_the_places_of_the_lunch_break_have_their_staff_over_the_lunch_breaks():
@@ -413,8 +464,10 @@ def test_the_places_of_the_lunch_break_have_their_staff_over_the_lunch_breaks():
     serves_lunch = np.isin(town.work_venue[staff], lunch_places)
     weekday = town.shift_window[staff, 0][serves_lunch]
     assert len(weekday) > 0
-    assert (weekday[:, 0] <= np.nanmin(PARAMS.schedule.lunch_window[:, 0, 0])).all()
-    assert (weekday[:, 1] >= food.window[0][1]).all(), "and still in the evening"
+    lunch = np.nanmin(PARAMS.schedule.lunch_window[:, 0, 0])
+    assert (weekday[:, 0] <= lunch).mean() > 0.2, "some begin before the lunch break"
+    assert (weekday[:, 1] >= food.window[0][1]).mean() > 0.2, "and some stay into the evening"
+    assert (weekday[:, 1] - weekday[:, 0] <= 8.0 + 1e-9).all(), "shifts of a working day"
 
 
 def test_residents_stay_in_the_care_home():
@@ -442,11 +495,26 @@ def test_staff_are_of_the_usual_sex_for_the_level():
 
 
 def test_there_are_about_as_many_teachers_as_in_reality():
+    # CZSO 2018/19: 11.9 children per kindergarten teacher; 940,928 + 420,814 pupils of basic and
+    # secondary schools per 64,345 + 38,223 teachers (13.3); Eurostat 2019: 16.8 students per
+    # university teacher (full-time equivalents and head counts)
     town = town_of(population=60_000, arena=8000.0)
     staff = lambda kind: ((town.place_kind == kind) & (town.role == WORKER)).sum()  # noqa: E731
-    assert (town.role == PRESCHOOL).sum() / staff(PRESCHOOL) == pytest.approx(11.7, rel=0.2)
-    assert (town.role == SCHOOL).sum() / staff(SCHOOL) == pytest.approx(13, rel=0.2)
-    assert (town.role == UNIVERSITY).sum() / staff(UNIVERSITY) == pytest.approx(14.5, rel=0.3)
+    assert (town.role == PRESCHOOL).sum() / staff(PRESCHOOL) == pytest.approx(11.9, rel=0.2)
+    assert (town.role == SCHOOL).sum() / staff(SCHOOL) == pytest.approx(13.3, rel=0.2)
+    assert (town.role == UNIVERSITY).sum() / staff(UNIVERSITY) == pytest.approx(16.8, rel=0.3)
+
+
+def test_teachers_keep_school_hours_without_a_late_shift():
+    town = town_of(population=20_000)
+    teachers = (town.role == WORKER) & np.isin(town.place_kind, (SCHOOL, UNIVERSITY))
+    window = town.shift_window[teachers, 0]
+    assert not np.isnan(window).any() and window[:, 1].max() <= 16.0
+    assert (town.start_habit[teachers] == 0).all()
+    assert (town.shift_attendance[teachers, 1] == 0).all()
+    preschool = (town.role == WORKER) & (town.place_kind == PRESCHOOL)
+    shifts = np.unique(town.shift_window[preschool, 0], axis=0)
+    assert len(shifts) == len(PARAMS.places["preschool"].staff_shifts)
 
 
 def test_remote_workers_and_the_homebound_have_no_place():
@@ -478,9 +546,11 @@ def test_estimated_mean_contacts_grow_with_the_contact_distance_and_are_cached()
 def test_mean_contacts_do_not_depend_on_the_area_of_the_town():
     # People meet inside homes and places, whose floor space per person is a property of the
     # place; a larger town only puts them further apart (contacts through walls do not count).
+    # The two towns are drawn independently: over the seeds 0-3 their difference spread from -3.7
+    # to +5.8 % (a few large workplaces carry much of it), so only a systematic one is caught.
     crowded = mean_contacts({"population": 3000, "arena_size": 1200}, PARAMS, 4.0)
     sparse = mean_contacts({"population": 3000, "arena_size": 4000}, PARAMS, 4.0)
-    assert sparse == pytest.approx(crowded, rel=0.03)
+    assert sparse == pytest.approx(crowded, rel=0.08)
 
 
 def test_town_is_reproducible_from_the_seed():
@@ -506,3 +576,31 @@ def test_a_recently_used_preview_is_kept_and_gives_the_same_answer():
     first = mean_contacts(world, PARAMS, 3.0)
     mean_contacts({"population": 778, "arena_size": 1500}, PARAMS, 3.0)
     assert mean_contacts(world, PARAMS, 3.0) == first
+
+
+def test_relatives_among_the_friends_are_a_generation_older_or_younger():
+    town = build_town(6000, ARENA, PARAMS, np.random.default_rng(4))
+    activity = PARAMS.schedule.activities[PARAMS.schedule.activity_index("visit")]
+    on_own = town.guardian < 0  # children share the favourites of their guardian
+    kin = town.visit_kin[on_own]
+    host_age = np.full(int(town.household.max()) + 1, -1.0)
+    np.maximum.at(host_age, town.household, town.age)  # the oldest member of each household
+    hosts = town.visit_host[on_own]  # the household of the host (a venue may be a ward)
+    gap = host_age[hosts] - town.age[on_own][:, None]
+    older, younger, friends = kin == 1, kin == -1, kin == 0
+    assert older.any() and younger.any() and friends.any()
+    assert np.median(gap[older]) > activity.generation_gap - 8
+    assert np.median(np.abs(gap[friends])) < activity.generation_gap / 2
+    share = (kin != 0).mean()
+    family = activity.family_share[town.age[on_own]].mean()
+    assert share == pytest.approx(family, abs=0.05)
+
+
+def test_a_small_child_goes_out_with_somebody_old_enough_to_be_a_parent_not_with_a_sibling():
+    town = town_of(population=30_000, arena=6500.0)
+    children = np.flatnonzero(town.guardian >= 0)
+    gap = town.age[town.guardian[children]] - town.age[children]
+    # an adult sibling was the guardian of 1.1 % of the children before; what remains are the
+    # households in which nobody is old enough to be a parent
+    assert len(children) > 1000
+    assert (gap >= PARAMS.population.parent_gap_min).mean() > 0.995

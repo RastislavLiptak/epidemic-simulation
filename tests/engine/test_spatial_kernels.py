@@ -41,7 +41,19 @@ def test_people_in_different_venues_or_on_the_way_are_not_in_contact():
     assert fast[0] == 0.0
 
 
-def test_contacts_from_the_own_household_are_counted_separately():
+def reference_exposure(x, y, susceptible, weights, household, at_home, venue, radius, near):
+    """Every pair, as array expressions: proximity-weighted exposure, and its part from the own
+    household at home."""
+    squared = (x[:, None] - x[None, :]) ** 2 + (y[:, None] - y[None, :]) ** 2
+    reach = (squared <= radius**2) & (venue[:, None] == venue[None, :]) & (venue[:, None] >= 0)
+    closeness = np.where(squared <= near**2, 1.0, near**2 / np.maximum(squared, 1e-12))
+    exposure = reach * closeness * weights[None, :]
+    same = (household[:, None] == household[None, :]) & at_home[:, None] & at_home[None, :]
+    return exposure.sum(axis=1) * susceptible, (exposure * same).sum(axis=1) * susceptible
+
+
+@pytest.mark.parametrize("near", [0.5, 1.0, 9.0])
+def test_exposure_is_weighted_by_distance_and_the_household_counts_at_home(near):
     rng = np.random.default_rng(3)
     count, size, radius = 400, 60.0, 9.0
     x, y = rng.random(count) * size, rng.random(count) * size
@@ -49,21 +61,40 @@ def test_contacts_from_the_own_household_are_counted_separately():
     weights = (rng.random(count) < 0.25) * rng.choice([0.5, 1.0], count).astype(np.float32)
     susceptible = weights == 0
     venue = np.where(rng.random(count) < 0.5, household, 1000).astype(np.int64)
+    at_home = (venue == household) & (rng.random(count) < 0.8)
     cells = int(size // radius)
     grid = build_grid(x, y, size, cells)
     contacts, own = count_infectious_contacts_by_household(
-        x, y, susceptible, weights, household, venue, *grid, cells, radius
+        x, y, susceptible, weights, household, at_home, venue, *grid, cells, radius, near
     )
-    near = (x[:, None] - x[None, :]) ** 2 + (y[:, None] - y[None, :]) ** 2 <= radius**2
-    near &= venue[:, None] == venue[None, :]
-    same = household[:, None] == household[None, :]
-    assert contacts == pytest.approx(
-        ((near * weights[None, :]).sum(axis=1) * susceptible), abs=1e-4
+    expected, expected_own = reference_exposure(
+        x, y, susceptible, weights, household, at_home, venue, radius, near
     )
-    assert own == pytest.approx(
-        (((near & same) * weights[None, :]).sum(axis=1) * susceptible), abs=1e-4
-    )
+    assert contacts == pytest.approx(expected, rel=1e-5, abs=1e-5)
+    assert own == pytest.approx(expected_own, rel=1e-5, abs=1e-5)
     assert own.sum() > 0 and own.sum() < contacts.sum()
+
+
+def test_exposure_falls_with_the_square_of_the_distance_beyond_the_full_distance():
+    x = np.array([0.0, 0.5, 2.0, 4.0, 7.0])
+    y = np.zeros(5)
+    weights = np.array([0.0, 1.0, 1.0, 1.0, 1.0], np.float32)
+    grid = build_grid(x + 1.0, y + 1.0, 10.0, 1)
+    contacts, _ = count_infectious_contacts_by_household(
+        x + 1.0,
+        y + 1.0,
+        weights == 0,
+        weights,
+        np.arange(5, dtype=np.int32),
+        np.zeros(5, np.bool_),
+        np.zeros(5, np.int64),
+        *grid,
+        1,
+        6.0,
+        1.0,
+    )
+    # 0.5 m: fully; 2 m: a quarter; 4 m: a sixteenth; 7 m: beyond the contact distance
+    assert contacts[0] == pytest.approx(1.0 + 0.25 + 1 / 16)
 
 
 def test_grid_lists_every_person_exactly_once():
@@ -147,7 +178,8 @@ def test_the_kernel_on_one_thread_and_the_kernel_on_all_threads_give_the_same_nu
     venue = rng.integers(0, 3, count).astype(np.int64)
     cells = int(size // radius)
     grid = build_grid(x, y, size, cells)
-    arguments = (x, y, weights == 0, weights, household, venue, *grid, cells, radius)
+    at_home = rng.random(count) < 0.5
+    arguments = (x, y, weights == 0, weights, household, at_home, venue, *grid, cells, radius, 1.0)
     for one, many in zip(
         count_infectious_contacts_by_household.serial(*arguments),
         count_infectious_contacts_by_household.parallel(*arguments),

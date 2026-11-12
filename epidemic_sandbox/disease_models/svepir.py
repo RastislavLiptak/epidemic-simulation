@@ -93,6 +93,25 @@ class SvepirModel(DiseaseModelAbstract):
             60.0,
             0.01,
         ),
+        "waning_stay_home": ParameterSpec(
+            "Stay-at-home share in the waning period",
+            "Share of the people in the waning period who still stay at home, for a person whose "
+            "stay-at-home age effect is 1: those who are off sick for fewer days than they are ill "
+            "are back at work or school by then.",
+            0.0,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        "waning_limit_outings": ParameterSpec(
+            "Fewer outings share in the waning period",
+            "Share of the people in the waning period who still go to work or school but skip "
+            "errands, visits and leisure.",
+            0.0,
+            0.0,
+            1.0,
+            0.01,
+        ),
         "waning_infectiousness": ParameterSpec(
             "Waning infectiousness (relative)",
             "How much a person spreads per day in the waning period compared with the period at "
@@ -181,6 +200,7 @@ class SvepirModel(DiseaseModelAbstract):
     }
     INFECTIOUS_STATES = frozenset({ASYMPTOMATIC, PRESYMPTOMATIC, INFECTIOUS, WANING})
     SYMPTOMATIC_STATES = frozenset({INFECTIOUS, WANING})
+    BEHAVIOUR = {WANING: ("waning_stay_home", "waning_limit_outings")}
     STATE_INFECTIOUSNESS = {
         PRESYMPTOMATIC: "presymptomatic_infectiousness",
         WANING: "waning_infectiousness",

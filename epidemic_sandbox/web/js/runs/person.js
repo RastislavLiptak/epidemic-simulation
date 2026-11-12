@@ -102,11 +102,12 @@ export function renderPerson(info, diseases) {
   return card;
 }
 
-/** What is known about a person without asking the server: age, role and current health. */
-export function basicPerson(person, run, people, states) {
+/** What is known about the person drawn at `position` without asking the server: age, role and health. */
+export function basicPerson(position, run, people, states) {
   const health = {};
   for (const disease of run.diseases) {
-    health[disease.name] = { state: disease.states[states[disease.name][person]].name };
+    health[disease.name] = { state: disease.states[states[disease.name][position]].name };
   }
-  return { id: person, age: people.ages[person], role: run.role_names[people.roles[person]], health, now: null };
+  const role = run.role_names[people.roles[position]];
+  return { id: people.ids[position], age: people.ages[position], role, health, now: null };
 }

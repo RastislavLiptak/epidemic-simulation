@@ -12,13 +12,22 @@ from epidemic_sandbox.disease_models import DISEASE_MODELS
 from epidemic_sandbox.world.town import TownParameters, load_town_parameters
 
 DISEASE_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+# What a disease file may hold; `targets` is read by the calibration (analysis/calibrate.py).
+DISEASE_FILE_KEYS = frozenset(
+    {"model", "initial_infected", "enabled", "parameters", "age_effects", "targets"}
+)
 ARENA_FILL_LIMIT = 0.5
 SQUARE_METERS_PER_SQUARE_KILOMETER = 1_000_000
 
-# Time resolution of the simulation, 30 minutes. Measured on the fictional demo diseases that the
-# real ones have replaced (3,000 people, 8 seeds each), the share of people ever infected was 79,
-# 70, 65, 66 and 66 % at 12, 24, 48, 96 and 144 steps a day and the peak was the same from 48 on:
-# a coarser step overestimates the spread, a finer one only costs time in proportion.
+# Model: the time resolution of the simulation, 30 minutes. Measured on the town and the diseases of
+# 2026-11-06 (scratchpad e6_force.py: a fixed 3 % of 6,000 people kept infectious with COVID-19 for
+# a week, nobody's state changing, 6 seeds): the time within contact distance of an infectious
+# person outside the own household was 4.6 % (standard error 1.8) longer at 24 steps a day than at
+# 192, 1.9 % (1.4) shorter at 48 and 0.7 % (0.6) shorter at 96, the time with infectious members of
+# the own household the same at all four (within 0.7 %); epidemics of COVID-19 (3,000 people, 8
+# seeds) infected 76.7, 74.5 and 74.5 % of the town at 24, 48 and 96 steps a day. A coarser step
+# stretches the short outings (one event per step), a finer one only costs time in proportion.
+# Measure again after changes to how people move.
 STEPS_PER_DAY = 48
 
 WORLD_PARAMETERS = {
@@ -287,6 +296,14 @@ def _load_disease(disease_path: Path) -> tuple[DiseaseConfig, bool]:
         )
     with disease_path.open("rb") as disease_file:
         raw = tomllib.load(disease_file)
+    # a misspelt key or table would otherwise be skipped and its values silently replaced by the
+    # defaults of the model, which are no property of this disease
+    unknown = sorted(set(raw) - DISEASE_FILE_KEYS)
+    if unknown:
+        raise ValueError(
+            f"{disease_path}: unknown keys {unknown}, "
+            f"a disease file has {sorted(DISEASE_FILE_KEYS)}"
+        )
     enabled = raw.get("enabled", False)
     if not isinstance(enabled, bool):
         raise TypeError(f"{disease_path}: enabled must be true or false")

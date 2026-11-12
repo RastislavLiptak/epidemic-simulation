@@ -1,4 +1,3 @@
-
 import numpy as np
 import pytest
 from config_factory import LIBRARY
@@ -71,11 +70,12 @@ def private_sizes(population):
     return np.bincount(population.household[~population.resident])
 
 
-def test_household_sizes_match_the_census(population):
+def test_household_sizes_match_the_dwellings_of_the_census(population):
     sizes = private_sizes(population)[:-1]  # the last household may be cut
-    shares = np.bincount(sizes, minlength=9)[1:9] / len(sizes)
+    width = len(PARAMS.household_weights)
+    shares = np.bincount(sizes, minlength=width + 1)[1 : width + 1] / len(sizes)
     assert shares == pytest.approx(PARAMS.household_weights, abs=0.005)
-    assert (~population.resident).sum() / len(sizes) == pytest.approx(2.15, abs=0.03)
+    assert (~population.resident).sum() / len(sizes) == pytest.approx(2.26, abs=0.03)
 
 
 def test_household_kinds_keep_their_shares_through_the_fit():
@@ -201,33 +201,42 @@ def test_couples_are_close_in_age(population):
 
 
 def test_lone_households_skew_old_as_in_reality(population):
+    # census 2021: 627.5 thousand of the 1,597 thousand dwellings of one person are of people 65+
     alone = (household_sizes(population)[population.household] == 1) & ~population.resident
-    assert (population.age[alone] >= 65).mean() == pytest.approx(0.37, abs=0.03)
+    assert (population.age[alone] >= 65).mean() == pytest.approx(0.393, abs=0.03)
     assert (population.age[alone] < 18).sum() == 0
 
 
 def test_more_old_women_live_alone_than_old_men(population):
     alone = (household_sizes(population)[population.household] == 1) & ~population.resident
     old = population.age >= 65
-    assert alone[old & (population.sex == FEMALE)].mean() == pytest.approx(0.40, abs=0.04)
-    assert alone[old & (population.sex == MALE)].mean() == pytest.approx(0.21, abs=0.04)
+    women = alone[old & (population.sex == FEMALE)].mean()
+    men = alone[old & (population.sex == MALE)].mean()
+    assert women > 1.5 * men
+    assert alone[old].mean() == pytest.approx(0.30, abs=0.03)  # census 2021, CZSO
 
 
 def test_care_home_residents_come_last_and_are_old(population, roles):
-    assert population.resident.mean() == pytest.approx(0.0055, abs=0.0005)
+    assert population.resident.mean() == pytest.approx(0.00517, abs=0.0005)  # MPSV 2019
     assert population.resident[-1] and not population.resident[0]
     assert (np.diff(population.resident.astype(int)) >= 0).all()
     assert (population.age[population.resident] >= 50).all()
     assert (roles[population.resident] == RESIDENT).all()
     in_care = population.resident[population.age >= 86].mean()
-    assert in_care == pytest.approx(0.135, abs=0.03)
+    assert in_care == pytest.approx(0.12, abs=0.03)
+
+
+def test_most_care_home_residents_are_women(population):
+    # MPSV 2019: 40,290 of the 55,106 adult residents are women
+    assert (population.sex[population.resident] == FEMALE).mean() == pytest.approx(0.731, abs=0.04)
 
 
 @pytest.mark.parametrize("count", [100, 3000])
 def test_a_small_town_has_a_care_home_of_its_size(count):
     population = generate_population(count, PARAMS, np.random.default_rng(5))
     assert len(population.age) == count
-    assert population.resident.sum() == round(count * 0.0055)
+    in_care = (PARAMS.people * PARAMS.care_home_rates).sum()
+    assert population.resident.sum() == round(count * in_care)
 
 
 def test_roles_follow_age(population, roles):
@@ -254,8 +263,9 @@ def test_half_of_the_six_year_olds_are_still_in_kindergarten(population, roles):
 
 def test_nobody_is_in_two_levels_of_education_and_attendance_adds_up(population, roles):
     in_education = np.isin(roles, (PRESCHOOL, SCHOOL, UNIVERSITY))
+    # 1.4 % of the boys of 7 are in neither (educ_uoe_enra02), everybody from 8
     assert in_education[(population.age >= 7) & (population.age < 15)].mean() == pytest.approx(
-        1.0, abs=0.001
+        1.0, abs=0.002
     )
 
 
@@ -328,21 +338,22 @@ def test_any_population_size_is_produced_exactly(count):
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
-        ("weights = [0.39068, 0.29524", "weights = [0.29524", "invalid household sizes"),
+        ("weights = [0.35657, 0.29867", "weights = [0.29867", "invalid household sizes"),
         ("couple = 0.702", "alone = 0.702", "invalid household kinds"),
         ("couple = 0.702", "nonsense = 0.702", "invalid household kinds"),
         ("preschool = [[2, 3, 0.171", "preschool = [[3, 2, 0.171", "invalid age range"),
         ("[8, 15, 1.0, 1.0]", "[8, 15, 1.5, 1.0]", "invalid age range"),
         ("[6, 7, 0.421, 0.536]", "[6, 7, 0.9, 0.9]", "education shares exceed 1"),
         ("[households.head_age.other]", "[households.head_age.unused]", "missing head_age"),
-        ("alone_older = 0.0611\n", "", "kind_shares must list"),
+        ("alone_older = 0.05990\n", "", "kind_shares must list"),
         ('first_day = "2018-09-10"', 'first_day = "2018-09-11"', "must be a Monday"),
         ('first_day = "2018-09-10"', 'first_day = "September"', "Invalid isoformat"),
         ("mother_ages = [18, 50]", "mother_ages = [50, 18]", "increasing age range"),
-        ("[3, 0.217], [6, 0.88]", "[6, 0.217], [3, 0.88]", "mother_employment"),
+        ("[3, 0.217], [6, 0.789]", "[6, 0.217], [3, 0.789]", "mother_employment"),
         ("accompanied_under = 10", "accompanied_under = -1", "accompanied_under"),
-        ("staff_per_resident = 0.10", "staff_per_resident = -1", "staff_per_resident"),
-        ("[50, 66, 0.00143]", "[66, 50, 0.00143]", "invalid age range"),
+        ("staff_per_resident = 0.40", "staff_per_resident = -1", "staff_per_resident"),
+        ("[50, 66, 0.00105, 0.00166]", "[66, 50, 0.00105, 0.00166]", "invalid age range"),
+        ("part_time_students = 0.08", "part_time_students = 2", "part_time_students"),
     ],
 )
 def test_invalid_population_settings_are_rejected(tmp_path, old, new, message):
@@ -361,3 +372,22 @@ def test_negative_age_counts_are_rejected(tmp_path):
     table = "age,male,female\n0,100,100\n5,-100,-100\n"
     with pytest.raises(ValueError, match="must be non-negative"):
         load_town_parameters(write_town(tmp_path, age_table=table))
+
+
+def test_couples_are_partners_of_each_other(population):
+    partner = population.partner
+    couples = np.flatnonzero(partner >= 0)
+    assert len(couples) > 0.3 * len(partner)
+    assert (partner[partner[couples]] == couples).all()
+    assert (population.household[partner[couples]] == population.household[couples]).all()
+    men = couples[population.sex[couples] == MALE]
+    assert (population.sex[partner[men]] == FEMALE).mean() > 0.99
+    assert not population.resident[couples].any()
+
+
+def test_every_private_household_has_its_kind(population):
+    kind = population.kind
+    homes = np.unique(population.household[~population.resident])
+    assert (kind[homes] >= 0).all() and (kind[homes] < len(PARAMS.kind_names)).all()
+    residents = population.household[population.resident]
+    assert (kind[np.unique(residents)] == -1).all()

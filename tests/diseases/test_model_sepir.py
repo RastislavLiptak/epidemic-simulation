@@ -189,7 +189,15 @@ def test_the_relative_infectiousness_of_each_state():
 
 
 def test_only_the_symptomatic_react_to_their_illness_and_the_presymptomatic_carry_on():
-    model = SepirModel(ONE_DAY, stay_home=1.0, limit_outings=1.0, duration_shape=50.0, **DAYS)
+    model = SepirModel(
+        ONE_DAY,
+        stay_home=1.0,
+        limit_outings=1.0,
+        waning_stay_home=1.0,
+        waning_limit_outings=1.0,
+        duration_shape=50.0,
+        **DAYS,
+    )
     disease_state, rng = new_state(model, population=200, cases=np.arange(200))
     seen = set()
     for _ in range(30):
@@ -203,16 +211,20 @@ def test_only_the_symptomatic_react_to_their_illness_and_the_presymptomatic_carr
     assert {PRESYMPTOMATIC, INFECTIOUS, WANING, RECOVERED} <= seen, "every state was checked"
 
 
-def test_the_waning_period_keeps_the_decision_to_stay_home_taken_at_the_onset():
-    model = SepirModel(ONE_DAY, stay_home=0.5, duration_shape=50.0, **DAYS)
+def test_in_the_waning_period_part_of_those_at_home_are_back_and_nobody_new_stays_home():
+    # those who are off sick for fewer days than they are ill are back at work by the waning
+    # part; one draw per illness, so those at home then were at home at the onset
+    model = SepirModel(ONE_DAY, stay_home=0.5, waning_stay_home=0.2, duration_shape=50.0, **DAYS)
     disease_state, rng = new_state(model, population=20_000)
     place(model, disease_state, rng, np.arange(20_000), INFECTIOUS)
     decided = disease_state.stays_home.copy()
+    assert decided.mean() == pytest.approx(0.5, abs=0.015)
     for _ in range(3):
         advance(model, disease_state, rng)
     waning = disease_state.state == ORDER.index(WANING)
     assert waning.mean() > 0.99
-    assert (disease_state.stays_home[waning] == decided[waning]).all()
+    assert disease_state.stays_home[waning].mean() == pytest.approx(0.2, abs=0.015)
+    assert not (disease_state.stays_home & ~decided).any(), "nobody starts staying home"
 
 
 def test_the_decision_to_stay_at_home_is_drawn_when_the_symptoms_begin():
@@ -697,25 +709,30 @@ MEANS_WITHOUT_LATENT = {
 
 # (values both the disease and the model default have, the disease's own values, age effects)
 SOURCED = (
-    {  # Ferretti et al. 2020, Xin et al. 2022, Wolfel et al. 2020, Buitrago-Garcia et al. 2022
-        "latent_days": 4.1,
-        "presymptomatic_days": 1.4,
+    {  # Ferretti et al. 2020 (the starting values of the fit), Wolfel et al. 2020
+        "latent_days": 2.5,
+        "presymptomatic_days": 3.0,
         "infectious_days": 1.75,
         "waning_days": 6.25,
         "waning_infectiousness": 0.08,
-        "presymptomatic_infectiousness": 1.0,
+        "presymptomatic_infectiousness": 0.8,
     },
     {
         "fatality": 0.01455,  # Levin et al. 2020
-        "transmission": 0.085,
-        "community_factor": 38.0,
-        "duration_shape": 4.3,
+        "transmission": 0.0179,  # Fitted to the household attack rate (Madewell, Thompson)
+        "community_factor": 1.0,  # Ferretti et al. 2024
+        "near_distance": 1.0,
+        "room_exposure": 9.94,  # Fitted to R0; Wells-Riley range 0.00026-0.021 per hour
+        "asleep_emission": 0.2,  # Buonanno et al. 2020, Table 1
+        "duration_shape": 3.5,  # Ferretti et al. 2020
         "death_delay_days": 9.8,  # Verity et al. 2020
-        "immunity_protection": 0.805,  # Hansen et al. 2021
-        "immunity_days": 520,
+        "immunity_protection": 1.0,  # COVID-19 Forecasting Team 2023, Abu-Raddad et al. 2021
+        "immunity_days": 418,
         "severe_protection": 0.902,  # COVID-19 Forecasting Team 2023
-        "stay_home": 0.40,  # Fragaszy et al. 2018
+        "stay_home": 0.31,  # Fragaszy et al. 2018
+        "waning_stay_home": 0.09,
         "limit_outings": 0.33,
+        "waning_limit_outings": 0.10,
         "infectiousness_dispersion": 0.55,
         "asymptomatic_share": 0.192,  # Buitrago-Garcia et al. 2022, Sah et al. 2021
         "asymptomatic_infectiousness": 0.32,  # Buitrago-Garcia et al. 2022
@@ -736,32 +753,9 @@ SOURCED = (
         ],
         "susceptibility": [[0, 20, 0.58]],  # Viner et al. 2021
         "asymptomatic": [[0, 19, 1.455], [19, 60, 1.0], [60, 120, 0.614]],  # Sah et al. 2021
+        "stay_home": [[0, 16, 1.806]],  # Fragaszy et al. 2018
     },
 )
-MEASLES = (
-    {},
-    {
-        "latent_days": 10.0,
-        "presymptomatic_days": 4.0,
-        "infectious_days": 2.0,
-        "waning_days": 2.0,
-        "waning_infectiousness": 0.5,
-        "transmission": 0.23,
-        "contact_distance": 10.0,
-        "duration_shape": 23.0,
-        "fatality": 0.000726,
-        "death_delay_days": 8.0,
-        "stay_home": 0.91,
-        "limit_outings": 0.33,
-        "initial_immune": 0.93,
-        "asymptomatic_share": 0.0,
-    },
-    {},
-)
-
-
-def test_measles_has_the_numbers_its_comment_cites():
-    check_disease_numbers("sepir", *MEASLES, name="measles")
 
 
 def test_the_disease_has_the_numbers_its_comment_cites():

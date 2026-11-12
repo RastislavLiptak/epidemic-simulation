@@ -10,8 +10,11 @@
 # respiratory illness, and how much a rhinovirus infection without symptoms interferes is not known.
 # Limits: the data of Nickbakhsh et al. say explicitly that they cannot show which virus acts on
 # which (the direction comes from the cell cultures of Wu et al. only); an odds ratio of co-detection
-# is not a risk ratio, and the period in which a person tests positive for rhinovirus (about 1.7
-# weeks by PCR in Byington et al. 2015) is longer than the 5.4 days that the model calls infectious.
+# is not a risk ratio, the more so as the samples came only from people with symptoms of a
+# respiratory infection, which by itself can make two infections look exclusive (a person with one
+# is sampled whether or not they have the other); and the period in which a person tests positive
+# for rhinovirus (about 1.7 weeks by PCR in Byington et al. 2015) is longer than the 5.4 days that
+# the model calls infectious.
 # A check in the default town (12 runs of 120 days with the cold settled for 100 days before the
 # influenza starts, 2.2 % of the people ill with a cold at a time): influenza infected 287 people on
 # average with the interaction and 266 without, within the run-to-run spread (standard error about

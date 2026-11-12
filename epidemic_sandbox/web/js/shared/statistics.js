@@ -1,7 +1,11 @@
 const sum = (values) => values.reduce((total, value) => total + value, 0);
+const OTHER_DEATHS = "dead of another disease";
 const mean = (values) => sum(values) / values.length;
 
-/** Everything the runs have reported so far: one record per simulated day and run. */
+/**
+ * Everything the runs have reported so far: one record per simulated day and run, taken at
+ * midnight, and a last one at the hour the experiment was finished if that was not midnight.
+ */
 export class History {
   constructor(run) {
     this.diseases = run.diseases;
@@ -19,6 +23,16 @@ export class History {
 
   get dayCount() {
     return this.records[0].length;
+  }
+
+  /** The day of every record (the last one may be a fraction of a day). */
+  get days() {
+    return this.records[0].map((record) => record.day);
+  }
+
+  /** The time of the last record, in days. */
+  get lastDay() {
+    return this.dayCount ? this.records[0].at(-1).day : 0;
   }
 
   disease(name) {
@@ -53,10 +67,10 @@ export class History {
       everInfected: last.ever_infected[name],
       attackRate: last.ever_infected[name] / this.population,
       peakInfectious: peak,
-      peakDay: infectious.indexOf(peak),
+      peakDay: records[infectious.indexOf(peak)].day,
       deaths: last.deaths[name],
       totalInfections: last.cumulative_infections[name],
-      lastInfectiousDay,
+      lastInfectiousDay: records[lastInfectiousDay].day,
     };
   }
 
@@ -69,15 +83,20 @@ export class History {
     return { perRun, average };
   }
 
-  /** Long-format CSV: one row per run, day, disease and state. */
+  /**
+   * Long-format CSV: one row per run, day, disease and state. A disease's dead are its own
+   * victims; the people another disease killed are in no state of it, so each disease has a row
+   * "dead of another disease" too, and the rows of a disease add up to the population.
+   */
   csv() {
     const lines = ["run,day,disease,state,people"];
     this.records.forEach((records, run) => {
       for (const record of records) {
+        const allDeaths = sum(Object.values(record.deaths));
         for (const disease of this.diseases) {
-          disease.states.forEach((state, index) => {
-            lines.push(`${run + 1},${record.day},${disease.name},${state.name},${record.counts[disease.name][index]}`);
-          });
+          const row = (state, people) => lines.push(`${run + 1},${record.day},${disease.name},${state},${people}`);
+          disease.states.forEach((state, index) => row(state.name, record.counts[disease.name][index]));
+          if (this.diseases.length > 1) row(OTHER_DEATHS, allDeaths - record.deaths[disease.name]);
         }
       }
     });

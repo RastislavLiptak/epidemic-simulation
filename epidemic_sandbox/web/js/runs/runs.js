@@ -5,6 +5,7 @@ import { basicPerson, renderPerson } from "./person.js";
 import { LiveStatistics } from "../shared/sidebar.js";
 
 const TOOLTIP_OFFSET_PX = 16;
+const REFRESH_PERSON_MS = 1000; // a hovered person is asked about again this often while the run goes on
 
 /**
  * The runs of an experiment. The overview shows the course of every run in the charts of each
@@ -27,6 +28,7 @@ export class RunsView {
     this.hovered = null;
     this.household = [];
     this.info = new Map();
+    this.asked = 0;
     this.tiles = [];
     this.show(null);
   }
@@ -119,6 +121,8 @@ export class RunsView {
       if (data.x && this.people) {
         this.arena.pushFrame({ run_id: frame.run_id, hour: frame.hour, x: data.x, y: data.y, states: data.states });
       }
+      // the card of the hovered person follows the run
+      if (this.hovered && performance.now() - this.asked > REFRESH_PERSON_MS) this.inspect(this.hovered.person);
     }
     this.statistics.update(history, frame, isNewRun);
   }
@@ -134,9 +138,25 @@ export class RunsView {
     });
   }
 
-  /** The people of the open run: their ages and roles. */
+  /**
+   * The people of the open run that are drawn (all of them, or a sample in a large town): their
+   * numbers, ages and roles. A person on the canvas is known by their position among them.
+   */
   showWatching(message) {
-    if (message.run === this.selected && message.run !== null) this.people = message;
+    if (message.run !== this.selected || message.run === null) return;
+    this.people = message;
+    this.positionOf = new Map(message.ids.map((id, position) => [id, position]));
+  }
+
+  /** Ask the server about the person drawn at `position`. */
+  inspect(position) {
+    this.asked = performance.now();
+    this.handlers.inspect(this.selected, this.people.ids[position]);
+  }
+
+  /** Positions on the canvas of the members of a household that are drawn. */
+  drawnMembers(info) {
+    return info.household.members.map((member) => this.positionOf.get(member.id)).filter((at) => at !== undefined);
   }
 
   hover(person, event) {
@@ -151,9 +171,10 @@ export class RunsView {
     this.hovered = { person };
     this.pointer = event;
     if (changed) {
-      this.household = this.info.get(`${this.selected}:${person}`)?.household.members.map((member) => member.id) ?? [];
+      const known = this.info.get(`${this.selected}:${this.people.ids[person]}`);
+      this.household = known ? this.drawnMembers(known) : [];
       this.renderTooltip();
-      this.handlers.inspect(this.selected, person);
+      this.inspect(person);
     }
     this.placeTooltip(event);
     this.highlight();
@@ -161,7 +182,7 @@ export class RunsView {
 
   renderTooltip() {
     const person = this.hovered.person;
-    const known = this.info.get(`${this.selected}:${person}`);
+    const known = this.info.get(`${this.selected}:${this.people.ids[person]}`);
     const states = this.latest.runs[this.selected].states;
     const info = known ?? basicPerson(person, this.run, this.people, states);
     this.tooltip.replaceChildren(renderPerson(info, this.run.diseases));
@@ -180,8 +201,8 @@ export class RunsView {
   showPerson(info) {
     this.info.set(`${info.run}:${info.id}`, info);
     if (this.info.size > 200) this.info.delete(this.info.keys().next().value);
-    if (this.hovered && this.selected === info.run && this.hovered.person === info.id) {
-      this.household = info.household.members.map((member) => member.id);
+    if (this.hovered && this.selected === info.run && this.people?.ids[this.hovered.person] === info.id) {
+      this.household = this.drawnMembers(info);
       this.renderTooltip();
       this.placeTooltip(this.pointer);
       this.highlight();

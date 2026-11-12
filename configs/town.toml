@@ -13,6 +13,22 @@
 #               says what it does and why this value
 # Czech statistics are quoted from the Czech Statistical Office (CZSO, csu.gov.cz). A reference marked
 # "search summary" was read from a summary of a search result, not from the document itself.
+#
+# Known gaps (what `python -m epidemic_sandbox.analysis.validate` reports as failing, measured in wave 3;
+# nothing here is hidden by a wide tolerance):
+#   - people at home at 10 a.m. of a workday (Cesko v pohybu): 0.46 against 0.31 (18-39), 0.44 against
+#     0.30 (40-64), 0.81 against 0.62 (65+); the town has too many people at home in the morning:
+#     workers are at home at that hour on a third of the days (absence 14 %, days off of weekend
+#     workers, late shifts) and those who stay at home do not go out on errands as often as the
+#     survey's people do. Whether the survey's "ordinary workday" leaves out days of leave is not known;
+#   - contacts of four hours or more at places other than home, work and school: 0.13 and 0.03 a day
+#     against 0.25 and 0.17 (POLYMOD): the town has few long social meetings;
+#   - household pairs close for 1-4 hours a day: 37 % against the survey's 21 % (see together_share);
+#   - contacts of 1 hour or more at home of people over 64: 1.2 against 1.9.
+# Households: the shares of [households] are those of the 10.10 million people in the dwellings of the
+# 2021 census, but the town puts all people of the 2019 age table outside care homes (10.59 million,
+# 4.9 % more) into dwellings, so about 5 % too many live alone (65+: 0.317 against 0.301, 55-64: 0.214
+# against 0.205, 25-49: 0.138 against 0.131, measured at 150,000 people).
 
 # ---- People -----------------------------------------------------------------------------------
 
@@ -29,19 +45,20 @@ group_width = 5
 open_from = 85
 
 [households]
-# Household sizes; the census has no size above "7 or more".
-# Source: census 2021, 4,813,103 housekeeping households by size: 1,880,336 / 1,421,003 / 701,829 /
-#   602,503 / 151,123 / 39,219 / 17,090 with seven or more, 10,359,900 people in all, mean 2.15:
-#   https://scitani.gov.cz/size-of-housekeeping-household
-# Derived: the people left for the largest group mean 7.67 persons per household, which two sizes
-#   reproduce: 33 % of the group have seven people and 67 % eight.
-sizes = [1, 2, 3, 4, 5, 6, 7, 8]
-weights = [0.39068, 0.29524, 0.14582, 0.12518, 0.03140, 0.00815, 0.00117, 0.00238]
-# Model: a household is a few rooms. 0.5 m puts every two members within 1 m of each other, i.e.
-#   inside the contact distance of any disease (the smallest allowed is 0.5 m), so a household always
-#   infects itself, as a shared dwelling does. A larger radius would split households into people
-#   who are not in contact at home.
-radius = 0.5                 # members of a household stay within this distance of the home point
+# A household is the people who live in one dwelling, since the dwelling is where they meet each
+# other all day and night. The census also counts housekeeping households (people who share
+# their expenses); several of them can share one dwelling, so they split real flatmates and the
+# old parents living with their children into separate homes (CZSO: of the 688 thousand
+# single-person housekeeping households aged 65+, "7 % in a dwelling shared with other
+# households"), and they are not used here.
+# Source: census 2021, 4,480,139 occupied dwellings by the number of persons living in them:
+#   1,597,474 / 1,338,078 / 700,544 / 600,759 / 169,495 / 73,789 with six or more, 10,104,385 persons
+#   in all, mean 2.26 (CZSO open data of the census, sldb2021_byty_osoby.csv,
+#   https://csu.gov.cz/produkty/vysledky-scitani-2021-otevrena-data).
+# Derived: the persons left for the largest group, 478,612, mean 6.486 per dwelling, which two sizes
+#   reproduce: 51.4 % of the group have six people and 48.6 % seven.
+sizes = [1, 2, 3, 4, 5, 6, 7]
+weights = [0.35657, 0.29867, 0.15637, 0.13409, 0.03783, 0.00846, 0.00801]
 # Derived: the mean and the spread of the age of mothers at their first births by year, from the
 #   numbers of births by age and order, Eurostat demo_fordagec. Rows: [year, mean, standard deviation].
 #   (Eurostat's own indicator AGEMOTH1 is standardised for the age structure; the mean
@@ -65,13 +82,14 @@ sibling_spacing_sd = 2.5
 # Assumption: a biological and legal lower limit; births to mothers under 18 are rare, and the
 #   limit only keeps the generator from making impossible households. It is not a fitted value.
 parent_age_gap_min = 17      # nobody has a child younger than this
-# Source: first marriages 2022, grooms 32.5 and brides 30.3 years on average, a gap of 2.2 years,
-#   CZSO, https://www.czso.cz/documents/11260/214798022/s%C5%88atky_2022.pdf (search summary).
-#   Marriages stand for all couples; the head of a couple is the man.
-partner_age_gap_mean = -2.2  # the woman's age relative to the man's
-# Assumption: no published spread found. 4 years means that about a quarter of couples differ by
-#   more than 4 years and one in twenty by more than 8, which is what is commonly seen; it only
-#   affects how well the ages of partners match.
+# Source: mean age at first marriage in 2019, men 32.0 and women 29.4 years (Eurostat demo_nind,
+#   MAGEMAR1 and FAGEMAR1), a gap of 2.6 years. Marriages stand for all couples; the head of a
+#   couple is the man.
+partner_age_gap_mean = -2.6  # the woman's age relative to the man's
+# Fitted: "U 70 procent paru byva starsi muz, v jedne petine zena a ve zbyle desetine jsou
+#   novomanzele stejneho veku" (CZSO, https://csu.gov.cz/csu/czso/rostouci-snatecnost-zastavil-koronavirus):
+#   with a mean gap of 2.6 years, a spread of 4.0 makes the man older by more than half a year in
+#   70 % of couples, the woman in 22 % and the two of an age in 8 %.
 partner_age_gap_sd = 4.0
 # Source: census 2021, 77,060 lone fathers of 508,590 lone parents:
 #   https://scitani.gov.cz/type-of-housekeeping-household
@@ -79,32 +97,39 @@ lone_father_share = 0.1515
 # Derived: 58,167 boys of 113,866 children under one on 1 January 2019 (the age table above).
 male_birth_share = 0.511
 
-# Kinds of households. The fit makes the population match these shares of all households.
-# Source: census 2021, type of housekeeping household (link above) and the 2021 table of families
-#   with dependent children (https://olomouc.eu/administrace/repository/gallery/articles/29_/29533/Paloncyova.cs.pdf,
-#   whose totals are the census ones): 2,265,340 couple families, 967,796 of them with dependent
-#   children; 508,590 lone parents, 302,438 of them with dependent children; 70,115 households of
-#   two or more families; 88,722 multi-person non-family households; 1,880,336 single persons, of
-#   them 688 thousand aged 65 or more (https://csu.gov.cz/seniori-v-datech/domacnosti-senioru).
-#   Of the people living alone under 65, 263 of 1,067 thousand are 55-64 (Eurostat lfst_hhindws, 2021),
-#   and this split of the single persons (alone_older) has to be a target: otherwise the fit, which
-#   looks for people of those ages, puts them there.
-# Derived: the census does not split the 1,297,544 couples without dependent children into couples
-#   alone and couples with a grown-up child at home. Two-person households fix it: their 29.52 % are
+# Kinds of households, as shares of the 4,480,139 dwellings. The fit makes the population match them.
+# Source: census 2021, type of housekeeping household (https://scitani.gov.cz/type-of-housekeeping-household)
+#   and the 2021 table of families with dependent children
+#   (https://olomouc.eu/administrace/repository/gallery/articles/29_/29533/Paloncyova.cs.pdf, whose
+#   totals are the census ones): 2,265,340 couple families, 967,796 of them with dependent children;
+#   508,590 lone parents, 302,438 of them with dependent children; 70,115 households of two or more
+#   families; 88,722 multi-person non-family households. Single persons: 1,597,474 dwellings have
+#   one person (above); "627,5 tis." people aged 65+ live alone in a dwelling
+#   (https://csu.gov.cz/seniori-v-datech/domacnosti-senioru).
+# Derived: the 969,974 people living alone under 65 are split by the ages of the people living
+#   alone in the labour force survey of 2019 (Eurostat lfst_hhindws, "one adult without resident
+#   children": 236.4 of 854.5 thousand aged 18-64 are 55-64), so 268,344 are 55-64 (alone_older; a
+#   target, or the fit, which looks for people of those ages, puts them there) and 701,630 younger.
+#   The 2,882,665 dwellings of more than one person are 1.7 % fewer than the housekeeping
+#   households of more than one person (2,932,767): some of them share a dwelling. Every family kind
+#   is scaled by 2,882,665 / 2,932,767 = 0.9829; the single persons who live with others (282,862)
+#   join these households as their members, which the sizes above make the fit do.
+#   The census does not split the 1,275,377 couples without dependent children into couples alone
+#   and couples with a grown-up child at home. Two-person dwellings fix it: their 1,338,078 are
 #   couples plus the lone parents with one child (61 % of those with dependent children, Eurostat
-#   lfst_hhnhtych, and an assumed 80 % of the others) plus flatmates (assumed 85 % of the non-family
-#   households), which leaves 20.73 % for couples alone and 6.23 % for couples with grown-up children.
+#   lfst_hhnhtych, and an assumed 80 % of the others) plus flatmates (assumed 85 % of the
+#   non-family households), which leaves 920,514 couples alone and 354,863 with grown-up children.
 [households.kind_shares]
-alone = 0.1867
-alone_older = 0.0611
-alone_senior = 0.1429
-couple = 0.2073
-couple_with_children = 0.2011
-parent_with_children = 0.0628
-couple_with_adult_children = 0.0623
-parent_with_adult_children = 0.0428
-multigenerational = 0.0146
-other = 0.0184
+alone = 0.15661
+alone_older = 0.05990
+alone_senior = 0.14006
+couple = 0.20547
+couple_with_children = 0.21233
+parent_with_children = 0.06635
+couple_with_adult_children = 0.07921
+parent_with_adult_children = 0.04523
+multigenerational = 0.01538
+other = 0.01947
 
 # Kinds by size: where the fit starts from.
 # Derived from the shares above: the number of children of couples (40 % one, 48 % two, 11 % three or
@@ -143,17 +168,16 @@ multigenerational = 0.30
 [households.kinds.7]
 couple_with_children = 0.50
 multigenerational = 0.50
-[households.kinds.8]
-couple_with_children = 0.50
-multigenerational = 0.50
 
-# Age of the household head by kind: weights of 5-year groups starting at the given age.
+# Age of the household head by kind: weights of 5-year groups starting at the given age, or of the
+# age bands between the given edges.
 # Assumption (all shapes): the shapes were chosen to be plausible, they are not published. They only
 #   set where each kind of household starts: the households are then reweighted so that the people
 #   by age and sex are the published ones (see population.py), so a wrong shape changes the mix of
 #   ages inside households but not the age structure of the town. The reasoning:
-#   - alone: Derived from people living alone in 2021, Eurostat lfst_hhindws: 60 thousand aged 18-24,
-#     632 thousand aged 25-49, 112 thousand aged 50-54;
+#   - alone: Source for the bands: thousands of people living alone in 2019, Eurostat lfst_hhindws
+#     ("one adult without resident children"): 55.3 aged 18-24, 451.8 aged 25-49, 111.0 aged 50-54;
+#     the ages inside a band are equally likely (Assumption);
 #   - alone_older: 55 to 64;
 #   - alone_senior: from 65, falling as few people reach the oldest ages;
 #   - couple (age of the man): a hump of young couples before children come and a larger one of
@@ -164,8 +188,8 @@ multigenerational = 0.50
 #   - multigenerational: the grandparents, from 50;
 #   - other: young heads (flatmates, siblings), few old ones.
 [households.head_age.alone]
-start = 20
-weights = [0.075, 0.158, 0.158, 0.158, 0.158, 0.158, 0.135]
+edges = [18, 25, 50, 55]
+weights = [55.3, 451.8, 111.0]
 [households.head_age.alone_older]
 start = 55
 weights = [0.46, 0.54]
@@ -204,41 +228,122 @@ couple_with_children = [0, 25]
 parent_with_adult_children = [18, 60]
 couple_with_adult_children = [18, 60]
 
+# The inside of the dwellings (see world/dwellings.py): a common room (the living room and the
+# kitchen, where the household is together) with the bedrooms around it.
+[households.dwelling]
+# Source: rooms per person in 2019, Czechia (EU-SILC, Eurostat ilc_lvho04): one adult 2.9, one adult
+#   with dependent children 1.3; two adults 1.8, with one, two, three or more dependent children
+#   1.2, 1.0, 0.8; three or more adults 1.4, with dependent children 1.1 (taken for any number of
+#   children). Rows: one, two, three or more adults; columns: no child, one, two, three or more
+#   children (under 18). One room is the common room, the others are bedrooms.
+rooms_per_person = [[2.9, 1.3, 1.3, 1.3], [1.8, 1.2, 1.0, 0.8], [1.4, 1.1, 1.1, 1.1]]
+# Assumption: when together, the household sits at a table or on a sofa group, about 2 m across
+#   (4 m2): a room of the dwellings of the census 2021 has about 21 m2 (88.6 m2 on average, from
+#   their floor areas in sldb2021_byty_plocha.csv, under 40 m2 290,095; 40-60 788,211; 60-80
+#   1,188,305; 80-100 603,270; 100-120 382,228; 120-150 362,571; 150 or more 477,435, counted as
+#   180; 3.23 living rooms in sldb2021_byty_mistnosti.csv, plus a kitchen), but the people in it are
+#   near each other. A visitor sits there too. With the room's whole floor people were too far apart
+#   for the long contacts the survey finds (below).
+common_area = 4.0
+# Fitted: the share of the time awake at home spent in the common room, the rest in one's own room
+#   (whoever comes home goes to one or the other, as the people at home do). The target is the time
+#   people spend awake with the members of their household (HETUS 2020, Eurostat tus_20wwhom: with
+#   their children, parents, partner or other household members; the median of Germany, Poland,
+#   Hungary, Bulgaria and Croatia, everybody of the age including those who live alone): 10-14 6.4 h
+#   a day, 15-24 4.3, 25-34 6.3, 35-44 6.9, 45-54 5.8, 55-64 4.8, 65-74 4.8, 75+ 4.3. Measured (a
+#   town of 6,000, a week of October 2018) as the time awake at home in the common room with
+#   another member there (re-measured in wave 3, three towns of 6,000, seeds 0-2): 0.8 gives
+#   5.5 / 4.6 / 4.3 / 4.2 / 3.5 / 3.5 / 4.8 / 3.1 h, which is 0.61 to 1.07 of the survey in every
+#   age group and 0.75 of it for everybody of 10 or more (4.1 h against 5.5 h), as it should be: the
+#   survey also counts the time spent together away from home (errands, trips, visits), which the
+#   town's time at home does not (the band of 0.60 to 1.25 of the survey, in the reference file, is
+#   an Assumption: no split by place is published, so the lowest group of 0.61 sits at its edge);
+#   0.9 gives 6.5 / 5.6 / 5.1 / 5.0 / 4.2 / 4.3 / 5.9 / 3.9 h, 5.0 h for everybody, and is too much
+#   for 15-24 (1.30 of the survey) and 65-74 (1.22), above the band. Check: of the daily contacts at home (the people one lives with), 63 % of the adults'
+#   lasted more than 4 hours and 21 % 1-4 hours (POLYMOD, Germany and Poland): of the pairs of a
+#   household within 2 m at home a day, 60 % are close for more than 4 h (the survey's 63 % +- 12) and
+#   37 % for 1-4 h, more than the survey's 21 % because the model has almost no pair close for less
+#   than an hour (4 %, the survey 16 %), see validation.py ("household pairs close").
+together_share = 0.8
+# Assumption: the two halves of a double bed of 160 cm, the sleepers 0.6 m apart.
+bed_gap = 0.6
+# Assumption: two beds of a shared bedroom stand along two walls, about 2 m apart.
+room_bed_gap = 2.0
+# Derived: a dwelling of the census mean floor area (88.6 m2) is about 9.4 m across, so its
+#   bedrooms are about half of that from the middle of the common room.
+bedroom_distance = 5.0
+# Derived: people sleep 8 h 23 min on a weekday (median of Germany, Poland and Croatia, HETUS 2020,
+#   Eurostat tus_20week, "sleeping"), here from 22:30 to 6:30, when those who start work at 7 get
+#   up (Cesko v pohybu: work begins at 8.0 on average, CDV 2022).
+sleep_hours = [22.5, 6.5]
+# Assumption: what people do at home (a meal, a programme, a chore) lasts about an hour before they
+#   move between the rooms; no time-use episode lengths were found.
+dwell_hours = 1.0
+
 [care_homes]
-# Derived: people living in homes for the elderly and homes with a special regime, a share of the
-#   people of an age. Source: 34.2 thousand clients in homes for the elderly (98 % over 65, 42 %
-#   aged 86-95) and 23.6 thousand in homes with a special regime (90 % over 65, 40 % aged 76-85) at
-#   the end of 2023, https://csu.gov.cz/seniori-v-datech/zarizeni-socialnich-sluzeb-a-jejich-klienti
-#   The remaining age groups are an Assumption (the table could not be read): 66-75 13 % and 25 %,
-#   76-85 38 % in homes for the elderly, 86-95 23 % in homes with a special regime, 96+ 5 % and 2 %,
-#   which gives 3.0, 10.3, 22.4, 19.8 and 2.2 thousand people, divided here by the people of the age.
-#   These people are 0.55 % of the population, 2.5 % of those over 65 and 13 % of those over 85.
-rates = [[50, 66, 0.00143], [66, 76, 0.00825], [76, 86, 0.03727], [86, 96, 0.1231], [96, 100, 0.3228]]
-# Derived: 519 homes for the elderly with 37 thousand beds and 322 homes with a special regime
-#   with 18.9 thousand beds at the end of 2017, 66 per home
-#   (https://cdn0.erstegroup.com/content/dam/cz/csas/www_csas_cz/dokumenty/analyzy/Pobytov%C3%A1%20za%C5%99%C3%ADzen%C3%AD%20pro%20seniory_2018_12.pdf).
+# Residents of homes for the elderly and homes with a special regime: [from age, to age, share of
+# the men, share of the women] of an age who live there.
+# Source: 35,275 residents of homes for the elderly (8,895 men, 26,380 women) and 19,833 of homes
+#   with a special regime (5,921 men, 13,910 women: they add up to 19,831, two fewer than the 19,833 of
+#   the table's total, which is why the by-sex sums are 55,106 and the totals 55,108) on 31 December 2019, MPSV, Statisticka rocenka z
+#   oblasti prace a socialnich veci 2019, table 6.3
+#   (https://www.mpsv.cz/cms/documents/f932ecba-bc00-848b-aaee-38340fdcd81d/Statisticka_rocenka_z_oblasti_prace_a_socialnich_veci_2019.pdf):
+#   55,106 adults, 73.1 % of them women.
+# Derived: the yearbook has no ages; the only age table is of 2023 (34.2 thousand residents of homes
+#   for the elderly, 98 % over 65, 42 % aged 86-95; 23.6 thousand of homes with a special regime, 90 %
+#   over 65, 40 % aged 76-85, https://csu.gov.cz/seniori-v-datech/zarizeni-socialnich-sluzeb-a-jejich-klienti),
+#   whose remaining age groups are an Assumption (the table could not be read: 66-75 13 % and 25 %,
+#   76-85 38 % in homes for the elderly, 86-95 23 % in homes with a special regime, 96+ 5 % and 2 %).
+#   These shares of the age groups (5.3 / 17.9 / 38.8 / 34.2 / 3.8 %) are applied to the 55,106
+#   residents of 2019, and the residents of an age group divided by the people of the age and sex on
+#   1 January 2019 (the age table above), with a woman's rate a constant multiple of a man's of the
+#   same age: 1.58, which gives the 40,290 women of 2019. The residents are 0.52 % of the population.
+rates = [[50, 66, 0.00105, 0.00166], [66, 76, 0.00609, 0.00962], [76, 86, 0.02850, 0.04501], [86, 96, 0.08273, 0.13069], [96, 100, 0.22911, 0.36191]]
+# Derived: 524 homes for the elderly with 36,688 beds and 349 homes with a special regime with
+#   20,904 beds in 2019 (the yearbook above, table 6.1), 66 beds per home.
 mean_size = 66
+# Source: 9,687 of the residents of homes for the elderly and 4,973 of homes with a special regime are
+#   permanently bedridden ("trvale upoutani na luzko", the yearbook above, table 6.3): 26.6 % of the
+#   55,108. They stay in their room all day, where the staff look after them.
+bedridden_share = 0.266
+# Assumption: a home is divided into wards with their own day room, dining room and staff; no
+#   national figure of their size was found (a position paper of the Nadeje organisation
+#   recommends homes "maximalne do 40 luzek" or a division "do mensich useku stavebne i personalne
+#   oddelenych", https://www.nadeje.cz/img-content/6/files/stanoviska/stanovisko-kolegia-senior-standard.pdf).
+#   24 residents is about one floor of a home of 66 and two or three care workers on the day shift
+#   (see the staff below). Mobile residents spend the day in the day room of their ward.
+ward_size = 24
 # Assumption: a single room has at least 8 m2 and a shared one 6 m2 per person (decree 505/2006
-#   Coll., not opened; search summary), and residents also share corridors and day rooms, hence 16.
-#   It sets how many residents are close to each other.
+#   Coll., not opened; search summary), and residents also share corridors and day rooms, hence 16 m2
+#   of the building per resident. It sets the size of a ward's day room: its residents are as close
+#   to each other there as the building's floor space per resident allows.
 area_mean = 16.0
-# Source: there is no binding national staffing standard (Public Defender of Rights 2023,
-#   https://ochrance.cz/uploads-import/ESO/NZ6-2023-NZ-dopln%C4%9Bn%C3%ADMHMP.pdf), but the regions
-#   set minimums for funding. That of the Karlovy Vary Region (2022, updated 2023,
-#   https://wwwtest.kr-karlovarsky.cz/system/files/2023-12/Minimalni_personalni_standardy.pdf):
-#   30 care workers' jobs per 80 beds, "kazdy den pracuje 11,5 uvazku pracovnika, napr. 8 ve dne a
-#   3,5 v noci", so 8 / 80 = 0.10 care workers per resident on the day shift. Nurses are not in it.
-#   The night shift is not modelled: the simulated day ends before midnight (a schedule never runs
-#   over it), so the 3.5 night workers per 80 beds, who look in on residents asleep in their rooms,
-#   are left out.
-staff_per_resident = 0.10   # care workers on the day shift, per resident
+# Source: direct care staff of the homes on 31 December 2019 (the yearbook above, table 6.7): homes for
+#   the elderly 13,730 care workers ("pracovnik v socialnich sluzbach"), 4,327 nurses and 775
+#   orderlies; homes with a special regime 9,458 care workers, 2,932 nurses and 424 orderlies: 31,646
+#   for 55,108 residents, 0.574 per resident (head count).
+# Derived: of the care workers' jobs of a day, 8 are on the day shift and 3.5 at night ("kazdy den
+#   pracuje 11,5 uvazku pracovnika, napr. 8 ve dne a 3,5 v noci", minimum staffing standard of the
+#   Karlovy Vary Region, 2022, updated 2023,
+#   https://wwwtest.kr-karlovarsky.cz/system/files/2023-12/Minimalni_personalni_standardy.pdf),
+#   70 %. The night shift is not modelled (the simulated day ends before midnight), so 0.574 * 8 /
+#   11.5 = 0.40 staff per resident work day shifts: a head count, not the number on duty. Each of them
+#   is on duty on 45 % of the days less absence (weekly_hours, [staff_absence]), so about 0.16 per
+#   resident are on the ward on a day. (Wave 3: the generator had divided this head count by the
+#   attendance as well and hired about one carer per resident.)
+staff_per_resident = 0.40   # direct care staff (care workers, nurses, orderlies) on day shifts
+# Assumption: what residents do in the common room (a meal, television, a chat) lasts about three
+#   quarters of an hour before they move to another spot of the room; no time-use episode lengths of
+#   residents were found (the dwellings use 1 hour, the places of leisure 0.75).
+dwell_hours = 0.75
 # Source: a shift may last at most 12 hours (Labour Code 262/2006 Coll., section 83(1)), and day
 #   shifts of 12 hours are usual in residential care (e.g. "denni dvanactihodinove smeny", job
 #   advertisement of Domov Slunicko Ostrava, 2026). Assumption: the day shift starts at 6, when the
 #   night quiet of the homes ends (see day_hours).
 shift_hours = [6, 18]
 # Source: 37.5 hours a week in continuous operation (Labour Code, section 79(2)(b)). With 12-hour
-#   shifts a worker is on 37.5 / 84 = 45 % of the days, every day of the week alike.
+#   shifts a worker is on 37.5 / 84 = 45 % of the days, every day of the week alike, less the days
+#   of leave and sickness of all workers (see [staff_absence]).
 weekly_hours = 37.5
 # Assumption: care is among the most female jobs; the share of women among teachers of the youngest
 #   children (below) is taken for it.
@@ -246,22 +351,18 @@ staff_female_share = 0.95
 # Source: residents are up and about in the home outside the night quiet, 22:00 to 6:00 ("Doba
 #   nocniho klidu je stanovena od 22:00 do 6:00 hodin", house rules of the Nadeje home for the
 #   elderly, https://nadeje.cz/wp-content/uploads/2026/01/Domaci-rad-DS.pdf; no national rule).
-#   Then they move about the home (day rooms, dining room); at night they are in their rooms.
+#   Then the mobile residents are in the day room of their ward; at night everybody is in their room.
 day_hours = [6, 22]
-# Derived: rooms of the homes for the elderly at the end of 2019, 12,656 single, 10,133 double and
-#   1,468 with three or more beds (MPSV, Statisticka rocenka z oblasti prace a socialnich veci 2019,
-#   table 6.2, https://www.mpsv.cz/cms/documents/f932ecba-bc00-848b-aaee-38340fdcd81d/Statisticka_rocenka_z_oblasti_prace_a_socialnich_veci_2019.pdf).
-#   Counting the last group as three beds: 12,656 / 20,266 / 4,404 beds, shares of the beds in
-#   rooms of 1, 2 and 3 beds. Roommates are together at night; rooms are separate venues.
-room_bed_shares = [0.339, 0.543, 0.118]
-# Limit (a check, not fitted): the residents of a home are one household for transmission (they
-#   infect each other at the household rate, staff and visitors at the rate between households).
-#   In an uncontrolled COVID-19 epidemic of a town of 30,000 (4 runs, 74-76 % of the town infected)
-#   21-38 % of the residents were infected; outbreaks in homes infected 45 % (95 % CI 32-58,
-#   EClinicalMedicine 2021, 49 studies) or 42 % (38-47, Open Forum Infect Dis 2022), 67 % without
-#   universal masking. Treating only roommates as a household and the other residents as anybody
-#   else infected 99-100 %. No measurement of how long residents spend together in the day rooms
-#   was found to settle it between the two; the home stays one household, which errs low.
+# Derived: rooms of the homes at the end of 2019 (the yearbook above, table 6.2): homes for the elderly
+#   12,656 single, 10,133 double and 1,468 with three or more beds, homes with a special regime 2,774,
+#   6,758 and 1,582. Counting the last group as three beds: 15,430 / 33,782 / 9,150 beds, the
+#   shares of the beds in rooms of 1, 2 and 3 beds. Roommates are together at night; rooms are
+#   separate venues.
+room_bed_shares = [0.264, 0.579, 0.157]
+# Assumption: the share of a care worker's shift spent in the residents' rooms (the bedridden, and
+#   help with washing and dressing), the rest in the ward's day room; no time study was found. It
+#   decides how much the staff meet the bedridden residents.
+staff_room_share = 0.5
 
 [education]
 # [from age, to age, share of men, share of women] attending: kindergarten, school and university.
@@ -273,11 +374,23 @@ room_bed_shares = [0.339, 0.543, 0.118]
 #   school ends at 19, so 47 % of the 19 year olds still go to school. Shares over 1 (foreign
 #   pupils) are cut to 1; the ages 8 to 14, where attendance is compulsory, are set to 1 (the register
 #   of 1 January 2019 still overcounts the population, which makes the ratio 0.97-0.98). Students older
-#   than 29 are 15 % of all students (2019), nearly all of them study
-#   part time next to a job, and they count as workers.
+#   than 29 are 17 % of all students (2019, the same table), nearly all of them study part time next
+#   to a job, and they count as workers.
 preschool = [[2, 3, 0.171, 0.182], [3, 4, 0.771, 0.782], [4, 5, 0.869, 0.873], [5, 6, 0.947, 0.940], [6, 7, 0.571, 0.450], [7, 8, 0.024, 0.019]]
 school = [[6, 7, 0.421, 0.536], [7, 8, 0.962, 0.981], [8, 15, 1.0, 1.0], [15, 16, 0.990, 0.988], [16, 17, 0.969, 0.970], [17, 18, 0.940, 0.937], [18, 19, 0.860, 0.880], [19, 20, 0.500, 0.436], [20, 21, 0.148, 0.106], [21, 22, 0.067, 0.054], [22, 23, 0.033, 0.031], [23, 24, 0.022, 0.020], [24, 25, 0.014, 0.015]]
 university = [[18, 19, 0.010, 0.013], [19, 20, 0.189, 0.299], [20, 21, 0.358, 0.500], [21, 22, 0.336, 0.499], [22, 23, 0.311, 0.460], [23, 24, 0.276, 0.399], [24, 25, 0.223, 0.315], [25, 26, 0.162, 0.215], [26, 27, 0.100, 0.123], [27, 28, 0.065, 0.076], [28, 29, 0.050, 0.058], [29, 30, 0.040, 0.047]]
+# Of the pupils of an age, the share at secondary schools (ISCED 3-4), [from age, to age, men,
+#   women]; the others are at basic schools (ISCED 1-2).
+# Derived: the same table (educ_uoe_enra02, 2019): at 15, 19,638 of 48,313 boys and 24,079 of 45,688
+#   girls; at 16, 44,593 of 46,919 and 43,008 of 44,383; from 17 over 98 %, taken as all.
+secondary = [[15, 16, 0.406, 0.527], [16, 17, 0.950, 0.969], [17, 25, 1.0, 1.0]]
+# Derived: of the students of 2018, 222,756 attended in person and 69,284 studied in the distance
+#   and combined forms (MSMT, search summary), which meet at the university on a few days of a term.
+#   The students over 29 are 17 % of all (54 thousand, above); if 80-100 % of them study at a
+#   distance, 15 to 26 thousand of the 265 thousand students under 30 do, 6 to 10 %.
+part_time_students = 0.08
+# Assumption: the combined form meets at the university on about one day a week (consultations).
+part_time_weekdays = 1
 
 [employment]
 # Source: employment rates 2019 by age and sex, labour force survey, Eurostat lfsa_ergan (2021 is
@@ -303,12 +416,24 @@ retired_from = 60
 #   LFS), and in 2021 9.2 of the 20.4 % were absent on it. Only 6.3 % of the under-3s are in formal
 #   childcare (Eurostat ilc_caindformal, 2019), so a mother of an under-3 who has a job stays at
 #   home whenever no other adult of the household is there (see [childcare]); the model counts her
-#   as employed, as the survey does. Fitted: 0.88 from 3 is the value for which the validation
-#   share of mothers of under-6s with a job comes out at 44 % (to be checked again after the
-#   under-3 row changed from an assumed 0.20 to the sourced 0.217).
-mother_employment = [[3, 0.217], [6, 0.88]]
+#   as employed, as the survey does. Source for the 3- to 5-year-olds: 78.9 % of the women whose
+#   youngest child is 3-5 years old were employed in 2019 (the same OECD table; 92.3 % with the
+#   youngest aged 6-14, which is the rate of the women of the band). The share of mothers of
+#   under-6s with a job is left to come out of these two rates and of the ages of the children, as
+#   a check of them against the 44.4 % of Eurostat.
+mother_employment = [[3, 0.217], [6, 0.789]]
 # Assumption: the age of a mother of a small child. Almost all births are to women of 18 to 49.
 mother_ages = [18, 50]
+# The days of leave and sickness of the staff whose hours are those of their place (care homes,
+#   shops, restaurants) and of teachers, who take their leave in the school holidays.
+# Source: 4 weeks of leave a year (Labour Code 262/2006 Coll., section 213(1)), 20 of about 250
+#   working days, 8 %.
+staff_leave = 0.08
+# Source: 4.70 % of the calendar days were days of sickness of the insured persons in 2019 (81.2
+#   million days of 4.73 million insured persons, CZSO table of temporary incapacity for work;
+#   search summary; the 2023 value is 4.57 %,
+#   https://csu.gov.cz/docs/107508/6fc493ad-ff85-db87-45d7-4141ef16965f/26000423p2t01.pdf).
+staff_sickness = 0.047
 
 # ---- Places -----------------------------------------------------------------------------------
 
@@ -338,91 +463,155 @@ max_site_contacts = 500      # largest accepted number of people within contact 
 #   third to more than twice the average activity, a moderate spread chosen because the factor only
 #   multiplies the chance of going out and is not a number of contacts.
 sociability_sigma = 0.5      # log-normal spread of how socially active people are (mean 1)
-# How long, on average, a person stays at one spot of a place (a desk, a table, a shelf) before
-#   moving to another spot of it. The expected number of people within reach does not depend on it
-#   (that is set by the floor space per person), only how many different people that makes.
-#   Source for schools: a lesson lasts 45 minutes (Act 561/2004 Coll., section 26(1)) and pupils
-#   change places in the breaks. Assumption: the same for the other places (people get up, go to a
-#   meeting, move to another shelf); no measurement was found. The validation of the number of
-#   different people met in a day (validation.py) passes over a wide range of this value, so it
-#   does not pin it down.
+# Assumption: at the places of errands and leisure (shops, restaurants, parks, the lunch break),
+#   how long a person stays at one spot before moving to another (a shelf, a path); no measurement
+#   was found. Schools, workplaces, care homes and dwellings have their own values below.
 dwell_hours = 0.75
 
 # Places where people spend the day. Mean size (people per place), log-normal spread of sizes,
 # distance decay of the choice as a share of the arena side, and the floor space per person: every
 # place has its own, drawn from a log-normal distribution (mean in m2, spread).
-# Education places are divided into classes of children of the same age; every class has staff,
-# recruited from the workers near it (pupils_per_teacher sets how many, at least one a class).
-# Every class is a room of its own; in the breaks and at lunch pupils and teachers meet in the
-# common rooms of the school (common_share).
+# Inside, a place has rooms (the classes of a school, the rooms of the teams of a workplace), each a
+# venue of its own, and a common area (corridors, canteen, kitchen, meeting rooms), where its people
+# spend `common_share` of their stay, as crowded as the rooms. Pupils of basic and secondary
+# schools and workers have a fixed seat or desk, to which they come back from the common area;
+# children of kindergartens and university students move about their room (`dwell_hours`).
 #
-# common_share, for all three: Fitted: the share of their time at school that pupils and teachers
-#   spend in the common rooms (corridors, canteen), as crowded as the classes. The target is the
-#   only measurement found: children of grades 1-5 spent 3.2 times as much face-to-face time with
-#   their classmates as with children of other classes (Stehle et al. 2011, PLoS ONE 6:e23176,
-#   "three times" in the text, 3.2 from its Table 3; 79 % of the time across classes at lunch).
-#   In the model, pupils aged 6-10 within 1.5 m of other pupils over a school week, 3 towns of
-#   6,000: 0.20 gives 3.90, 0.23 gives 3.19, 0.25 gives 2.75. Check not used in the fit: a Czech
-#   school morning of five 45-minute lessons has 45 minutes of breaks (decree 48/2005 Coll.,
+# common_share of the schools: Fitted: the share of their time at school that a class spends in the
+#   common rooms (corridors, canteen), all its pupils together, as crowded as the classes. The
+#   targets: children of grades 1-5 spent 3.2 times as much face-to-face time with their
+#   classmates as with children of other classes (Stehle et al. 2011, PLoS ONE 6:e23176, "three
+#   times" in the text, 3.2 from its Table 3, 2.4 to 5.3 in the ten classes; 79 % of the time across
+#   classes at lunch), and the contacts at school lasting 4 hours or more (POLYMOD, Germany and
+#   Poland, 2.96 per pupil of 5-19 and day). Measured within 1.5 m and 2 m in a town of 6,000 (a week
+#   of October 2018): 0.23 gives 8.6 times and 2.88 contacts, 0.27 4.6 and 2.40, 0.30 4.4 and 2.26,
+#   0.35 3.5 and 1.74, 0.50 2.0. Seated pupils are within 1.5 m of their neighbours all lesson
+#   long, which the face-to-face sensors of the study did not count as fully, so the time with
+#   classmates comes out higher; 0.30 keeps both within their ranges. Check not used in the fit: a
+#   Czech school morning of five 45-minute lessons has 45 minutes of breaks (decree 48/2005 Coll.,
 #   section 1(5): at least 10 minutes, one of 15) and about half an hour of lunch (86.8 % of the
-#   pupils of basic schools eat in the school canteen, MSMT 2018/19), 25 % of the time out of class.
-#   Assumption: the same share for kindergartens and universities, which were not measured.
+#   pupils of basic schools eat in the school canteen, MSMT 2018/19), 25 % of the time out of
+#   class. Assumption: the same share for kindergartens and universities, which were not measured.
+#
+# seats of basic and secondary schools [gap between the two seats of a double desk, gap between
+#   the desks of a row, gap between the rows] (m): Source: a double school desk is 130 cm wide and
+#   50 cm deep (CSN EN 1729-1 sizes, as sold for Czech schools; search summary), so desk-mates sit
+#   0.65 m apart; Assumption: an aisle of 0.6 m beside each desk (1.9 m from desk to desk) and 0.6 m
+#   for the chair between the rows (1.1 m), the usual classroom of rows facing the board. Pupils keep
+#   their seat during the lessons and leave it only for the common rooms.
+#
+# Teachers: Derived from the school statistics of 2018/19 (CZSO, Skoly a skolska zarizeni 2018/2019,
+#   tables 1, 26 and 61, https://csu.gov.cz/produkty/skoly-a-skolska-zarizeni-skolni-rok-20182019;
+#   full-time equivalents): the classes of the first stage of a basic school (ages 6-10, 28,759
+#   classes of 573,442 pupils with 32,830 teachers) have a class teacher of their own, as the
+#   teachers per class (1.14) allow; the classes of the second stage (367,486 pupils, 31,516
+#   teachers: 11.7 pupils per teacher) and of secondary schools (420,814 pupils, 38,223 teachers:
+#   11.0) are taught by teachers who go from class to class, one in a class at a time. A teacher
+#   teaches 22 lessons a week (Government Order 75/2005 Coll., annex, item 2.1), the pupils have 28-
+#   32: the teachers without a class sit in the staff room (the common area). The classes of a
+#   kindergarten (22.6 children, 11.9 per teacher) have two teachers who take turns in shifts.
+#   staff_hours: Assumption: teachers work 40 hours a week (Act 563/2004 Coll., section 22a), of
+#   which they are at school from half an hour before the lessons until the afternoon; the rest
+#   (preparation) may be done elsewhere.
 #
 # Model, for all places: size_sigma is the log-normal spread of the sizes of places of one kind
 #   (0 would make them equal), distance_scale is how quickly the wish to go to a place falls with
 #   distance as a share of the arena side, area_sigma is the spread of floor space per person. The
 #   order of the values is the reasoning: kindergartens are the most alike (0.3) because of rules on
 #   their capacity, schools vary a bit more (0.4), universities more (0.5), and workplaces are fitted
-#   (below). Small children go to
-#   the nearest place (0.05, then 0.10 for school), adults travel further to work (0.20) and students
-#   furthest (0.30). area_sigma is widest for workplaces (0.5), from a workshop to an open office.
+#   (below). Small children go to the nearest place (0.05, then 0.10 for basic school), secondary
+#   schools serve a wider area (0.30, Assumption: a town has few, each with its own fields of
+#   study), adults travel further to work (0.20) and students furthest (0.30). area_sigma is widest
+#   for workplaces (0.5), from a workshop to an open office.
 #
 # preschool
-#   mean_size: Source: 360,490 children in 5,349 kindergartens and 16,800 classes in 2021/22 (MSMT,
-#     as quoted by https://www.czso.cz/documents/11256/205463776/skolstvi_2021_2022.pdf; search
-#     summary), 67 per kindergarten.
+#   mean_size: Derived: 363,776 children in 5,287 kindergartens and 16,064 classes in 2018/19 (CZSO,
+#     table 1 above), 68.8 per kindergarten.
 #   area_mean: Source: the day room must have at least 4 m2 per child (decree 410/2005 Coll.,
 #     https://www.epravo.cz/top/zakony/sbirka-zakonu/sb/2005/410); a legal minimum, so the real mean
 #     is a little higher; 4 is kept because the minimum is what kindergartens plan with.
-#   class_size: Derived from the same numbers: 21.5 children per class, rounded to 22.
+#   class_size: Derived from the same numbers: 22.6 children per class.
 #   class_age_span: Assumption: classes of Czech kindergartens are usually of mixed ages, so a class
 #     takes children of 2 to 7 together (schools and universities have classes of one year of age,
 #     apart from the few older pupils, who count as the oldest year).
-#   pupils_per_teacher: Derived: 367,094 children per 28,302 teachers (Eurostat educ_uoe_perp01 and educ_uoe_enra02, 2019).
-#   staff_female_share: Source: 99.5 % of them are women (the same table).
+#   pupils_per_teacher: Source: 11.9 children per teacher (full-time equivalents; the same table).
+#   staff_female_share: Source: 99.5 % of them are women (Eurostat educ_uoe_perp01, 2019).
+#   staff_shifts: Derived: a kindergarten teacher teaches 31 hours a week (Government Order 75/2005
+#     Coll., annex), 6.2 hours a day, and the two teachers of a class work together at least 2.5
+#     hours a day (MSMT, the financing of kindergartens: "prekryvani PPc ucitelu v rozsahu minimalne
+#     2,5 hodiny denne v kazde tride"; search summary): a morning and an afternoon shift. The
+#     teaching is part of a working day of 8 hours at the workplace (40 hours a week, Labour Code
+#     262/2006 Coll., section 79(1)); two such shifts cover the whole opening of the kindergarten
+#     (childcare.kindergarten_hours 6 to 18, Assumption) and overlap by 4 hours, above the 2.5
+#     required. (Wave 3: shifts of 6.5 hours left the children without a teacher from 17 to 18.)
+#   dwell_hours: Assumption: small children change their play every quarter of an hour or so.
 [places.preschool]
-mean_size = 67               # 360 thousand children in 5.3 thousand kindergartens
+mean_size = 68.8
 size_sigma = 0.3
 distance_scale = 0.05
 area_mean = 4.0
 area_sigma = 0.25
-class_size = 22
+class_size = 22.6
 class_age_span = 8
-pupils_per_teacher = 13.0
+pupils_per_teacher = 11.9
 staff_female_share = 0.995
-common_share = 0.23
-# school (basic and upper secondary schools together)
-#   mean_size: Derived: 964,571 pupils in 4,238 basic schools and about 430 thousand in 1,285
-#     secondary schools in 2021/22 (same source as above), 252 per school.
+common_share = 0.30
+dwell_hours = 0.25
+class_teacher_until = 99
+staff_shifts = [[6.0, 14.0], [10.0, 18.0]]
+# basic school (ISCED 1-2)
+#   mean_size: Derived: 940,928 pupils in 4,172 basic schools in 2018/19 (CZSO, table 26 above),
+#     225.5 per school.
 #   area_mean: Derived: a classroom must have at least 1.65 m2 per pupil (decree 410/2005 Coll.; the
 #     4 m2 of the decree apply to practical-work rooms and the playrooms of kindergartens) and is
 #     built for the legal maximum of 30 pupils, so 1.65 * 30 / 20 = 2.5 m2 for the mean class.
-#   class_size: Derived: 19.3 pupils per class in basic schools (964,571 in 50,050 classes) and about 24 in
-#     secondary schools, about 20 together.
-#   pupils_per_teacher: Derived: 1.389 million pupils per 98,801 teachers of ISCED 1-3 (Eurostat
-#     educ_uoe_perp01 and educ_uoe_enra02, 2019).
-#   staff_female_share: Source: 77 % of them are women (the same table).
-[places.school]
-mean_size = 252
+#   class_size: Derived: 940,928 pupils in 46,774 classes, 20.1.
+#   min_class_size: Source: a class of several years of a small school ("malotridni skola") may have
+#     fewer pupils; the lowest average class size of a basic school is 17, of a school with several
+#     years in a class lower (decree 48/2005 Coll., section 4; search summary). Assumption: years
+#     with fewer than 10 pupils are taught together.
+#   pupils_per_teacher: Derived: 11.7 for the second stage (above).
+#   staff_female_share: Source: 77 % of the teachers of ISCED 1-3 are women (Eurostat
+#     educ_uoe_perp01, 2019).
+#   dwell_hours: Source: a lesson lasts 45 minutes (Act 561/2004 Coll., section 26(1)); between the
+#     lessons a pupil may go to the common rooms.
+[places.basic]
+mean_size = 225.5
 size_sigma = 0.4
 distance_scale = 0.10
 area_mean = 2.5
 area_sigma = 0.25
-class_size = 20
+class_size = 20.1
 class_oldest_age = 19
-pupils_per_teacher = 14.1
+min_class_size = 10
+pupils_per_teacher = 11.7
 staff_female_share = 0.77
-common_share = 0.23
+common_share = 0.30
+dwell_hours = 0.75
+seats = [0.65, 1.9, 1.1]
+class_teacher_until = 11
+staff_hours = [7.5, 15.0]
+# secondary school (ISCED 3)
+#   mean_size: Derived: 403,957 pupils of the daily form in 1,279 secondary schools in 2018/19 (CZSO,
+#     table 61 above), 315.8 per school.
+#   class_size: Derived: 403,957 pupils in 18,164 classes of the daily form, 22.2.
+#   pupils_per_teacher: Derived: 420,814 pupils per 38,223 teachers (the same table), 11.0.
+#   The others as for basic schools.
+[places.secondary]
+mean_size = 315.8
+size_sigma = 0.4
+distance_scale = 0.30
+area_mean = 2.5
+area_sigma = 0.25
+class_size = 22.2
+class_oldest_age = 19
+min_class_size = 10
+pupils_per_teacher = 11.0
+staff_female_share = 0.77
+common_share = 0.30
+dwell_hours = 0.75
+seats = [0.65, 1.9, 1.1]
+staff_hours = [7.5, 15.0]
 # university: Assumption for the first three values (no statistic found).
 #   mean_size 3000: faculties and campuses, not whole universities, since students attend one
 #     building; Czech universities have a few thousand to tens of thousands of students.
@@ -433,6 +622,9 @@ common_share = 0.23
 #   pupils_per_teacher 16.8: Derived: 319,343 students per 18,985 teachers of ISCED 5-8 (Eurostat
 #     educ_uoe_perp01 and educ_uoe_enra02, 2019).
 #   staff_female_share 0.38: Source: the same table.
+#   dwell_hours 1.5: Assumption: teaching is in blocks of two lessons of 45 minutes; students sit
+#     somewhere else in the next one.
+#   staff_hours: Assumption: lectures and seminars mostly fall between 9 and 16.
 [places.university]
 mean_size = 3000
 size_sigma = 0.5
@@ -442,28 +634,43 @@ area_sigma = 0.4
 class_size = 40
 pupils_per_teacher = 16.8
 staff_female_share = 0.38
-common_share = 0.23
-# work:
-#   solo_share 0.20: Derived: 1.21 million of the 1.25 million enterprises of the business economy
-#     have under 10 persons, 1.14 per enterprise on average (Eurostat sbs_sc_ovw, Czechia 2021), so
-#     nearly all of them are one person; in the sectors with a published split, one-person firms
-#     hold 34-53 % of the jobs of firms under 10, which is 11-18 % of all jobs, and the
-#     counts above give about 25 %. 20 % of the workers work alone, such as tradesmen.
-#   mean_size 6, size_sigma 2.4: Fitted, for the other workers, to the employment by size of the same
-#     table: 33 % under 10 persons, 7 % 10-19, 10 % 20-49, 18 % 50-249, 31 % 250 or more. Measured
-#     in a town of 150,000 people: 32, 7, 11, 21 and 30 %. A very skewed distribution: most firms
-#     are tiny and most people work in the few large ones. An enterprise stands for one workplace.
-#   area_mean 14: Assumption (the floor space per employee was not found in a source): the usual rule of thumb is 10-25 m2 per employee for offices and workshops;
-#     14 is a low-middle value, which makes workplaces fairly dense. It decides how many people sit
-#     within a few meters of each other at work, so it is the most important of these values for
-#     the contacts at work.
+common_share = 0.30
+dwell_hours = 1.5
+staff_hours = [9.0, 16.0]
+# work: workplaces are local units (a shop, an office, a factory), not enterprises, which may have
+#   many local units.
+#   solo_share: Source: 13.2 % of the employed were self-employed without employees in 2019
+#     (Eurostat lfsa_esgan, Czechia, 15-74); they work at a place of their own.
+#   mean_size, size_sigma: Fitted, for the other workers, to the employees by the size of their local
+#     unit in 2019 (Eurostat lfso_19fxwt02, labour force survey, Czechia: 797.5 thousand in units of
+#     1-10 persons, 1,699.0 thousand of 11-49 and 1,853.5 thousand of 50 or more: 18.3 / 39.0 /
+#     42.6 %). Measured in four towns of 60,000 pooled (validation.py): 18.2 / 38.9 / 43.0 %. The
+#     shares of one town differ from the next by about two points (the large units are few), so
+#     they were fitted to the pooled shares of four towns, not to one.
+#   area_mean 14: Assumption (the floor space per employee was not found in a source): the usual
+#     rule of thumb is 10-25 m2 per employee for offices and workshops; 14 is a low-middle value. It
+#     sets the size of the rooms and of the common area.
+#   team_size, desk_spacing, common_share: Fitted together to the contacts at work of the contact
+#     survey (POLYMOD, Germany and Poland, per person and day; ages 20-29, 30-39, 40-49, 50-59:
+#     contacts lasting 1 hour or more 1.29 / 1.86 / 1.68 / 1.39, 4 hours or more 0.82 / 1.31 /
+#     1.13 / 1.01; polymod_durations_de_pl.csv), counted within 2 m. Measured in a town of 6,000 (a
+#     week of October 2018): 1.07 / 1.39 / 1.64 / 1.57 and 0.68 / 0.90 / 1.01 / 0.96. A desk grid of
+#     1.6 m kept only the four nearest desks within 2 m and gave half these long contacts. A workplace
+#     is divided into rooms of a team each; everybody has a desk in a grid `desk_spacing` apart (the
+#     desks beside and behind and the diagonal ones within 2 m) and spends `common_share` of the
+#     day in the common area (meetings, kitchen, corridors).
+#   dwell_hours: Assumption: people get up from their desk about every hour.
 [places.work]
-solo_share = 0.20
-mean_size = 6
-size_sigma = 2.4
+solo_share = 0.132
+mean_size = 11
+size_sigma = 1.55
 distance_scale = 0.20
-area_mean = 14.0             # offices and workshops, typically 10 to 25 m2 per employee
+area_mean = 14.0
 area_sigma = 0.5
+team_size = 10
+desk_spacing = 1.4
+common_share = 0.10
+dwell_hours = 1.0
 
 # ---- Who goes out -----------------------------------------------------------------------------
 
@@ -482,74 +689,105 @@ accompanied_under = 10
 # ---- Leisure and errands ----------------------------------------------------------------------
 
 # Source: Eurostat HETUS 2020, the harmonised European time use survey (tus_20loc: minutes per person
-#   and day by place; tus_20week: by day of the week; tus_20age: by age group; each with time spent
-#   and participation time; people aged 10+ in private households, all days of the week). Czechia
-#   took part in neither round of the survey, so the values are medians over its neighbours and
-#   similar countries whose data were collected in 2022-2025, after the pandemic restrictions:
-#   Poland (2023), Hungary (2024-25), Germany (2022), Bulgaria and Croatia (2022-23). The countries
-#   that collected data in 2020-21 (Estonia, Finland, Austria, Serbia, Netherlands) are left out
-#   because of the pandemic. https://ec.europa.eu/eurostat/cache/metadata/en/tus_20_esms.htm
-# Derived: time at each kind of place, minutes per person and day (tus_20loc, medians): shops 19
-#   (SHOP), restaurants, cafes and pubs 15 (REST; lunch near work counts here too), the homes of
-#   others 28 (HOM_OTH), all other places 66 (OTH: outdoors, sports, culture, services, meetings;
-#   range 52-107 in the four countries that report it). The model has them as shopping, food (with
-#   lunch), visit and walk; "walk" stands for all other places, with the density of open space.
-#   Shops, restaurants and others' homes are matched to a few minutes, other places fall a little
-#   short (61, see the cap below). The rest of the day is at home: 78 % of the time spent at the
-#   places of the model, against 75-78 % in these countries (tus_20loc, HOM).
-# Derived: the length of an outing is the time spent divided by the participation rate, from
-#   tus_20week for Monday-Friday and the weekend, weighted 5:2: shopping and services 51 and 69
-#   minutes, visits and celebrations 78 and 122, walking, other sports, culture and voluntary work
-#   97 and 109. The values below are those in hours. For eating out HETUS gives no length of its
-#   own, so 1.5 h stays an Assumption.
+#   and day by place and activity; tus_20week: by day of the week; tus_20age: by age group; time
+#   spent, participation time and participation rate; people aged 10+ in private households, all
+#   days of the week). Czechia took part in neither round of the survey, so the values are medians
+#   over its neighbours and similar countries whose data were collected in 2022-2025, after the
+#   pandemic restrictions: Poland (2023), Hungary (2024-25), Germany (2022), Bulgaria and Croatia
+#   (2022-23). The countries that collected data in 2020-21 (Estonia, Finland, Austria, Serbia,
+#   Netherlands) are left out because of the pandemic. Hungary codes the homes of others,
+#   restaurants and other places as "not specified", so those medians are over four countries.
+#   https://ec.europa.eu/eurostat/cache/metadata/en/tus_20_esms.htm
+# Derived: time at each kind of place, minutes per person and day (tus_20loc, medians), without the
+#   personal care spent there (sleeping over, also the meals, which tus_20loc does not split from
+#   it), so daytime outings only:
+#   - shops 19 (SHOP: DE 18, PL 27, HU 21, BG 19, HR 14) -> shopping;
+#   - restaurants, cafes and pubs 15 (REST, nearly all eating) -> food and the lunch break;
+#   - the homes of others 19.5 (HOM_OTH 55/32/22/25 minus personal care 21/11/7/7) -> visit;
+#   - other places by activity (OTH): sports and outdoor activities 24.5 (30/24/15/25) -> outdoor;
+#     household and family care there, which is mostly services (doctor, post office, hairdresser,
+#     offices) 13 (12/15/8/14) -> services; voluntary work and meetings, social life and
+#     entertainment, hobbies 18.5 (34/17/20/14) -> culture (and meetings, church, clubs).
+#   The rest of the day is at home.
+# Derived: the length of an outing is the time spent on its activity divided by its participation
+#   rate, by day type (tus_20week, medians; participation rates of two activities added): shopping
+#   and services 0.84 h on weekdays, 1.13 h on Saturdays (shops, which are open in Czechia also on
+#   Sundays, unlike in Poland, Hungary and Germany, so Saturday stands for the weekend) and 1.03 h
+#   at weekends (services); visits and celebrations 1.42 and 2.11 h; walking, hiking and other
+#   sports 1.45 and 1.73 h; entertainment, culture, voluntary work and meetings 2.00 and 2.13 h.
+#   For eating out HETUS gives no length of its own, so 1.5 h stays an Assumption.
 # Derived: the chance of an outing is (minutes at the place * age factor * day factor) / length,
 #   with the minutes above, an age factor for the role (the time of the age groups of the role,
 #   from tus_20age, divided by the time of all ages; roles with several age groups take them
 #   equally: school 10-24, university 15-34, workers 25-64, retired 65+ weighted 65:35, homebound
 #   and preschool 25-44) and a day factor (weekday or weekend time divided by the weekly mean,
-#   tus_20week; for shopping the weekend is Saturday only, because Czech shops are open on Sundays,
-#   unlike those in Poland, Hungary and Germany). Fitted: one factor per activity (shopping 1.19,
-#   visits 1.17, other places 1.3) so that the model gives the minutes above, which the role and
-#   day shape alone, with people drawn at random, did not. Chances are capped at 0.95 (the whole
-#   weekend of the "walk" is at the cap: a person has one such outing a day here, in the data
-#   some have more). Food: Fitted: the earlier Assumption rows multiplied by 1.4 on weekdays and
-#   1.3 at weekends so that food and lunch together give 15 minutes; HETUS has no restaurant
-#   visits by age, so the order between roles stays an Assumption.
+#   tus_20week). Fitted: one factor per activity, so that the time at the places in the town (the
+#   engine, people 10+ outside care homes, 2 towns of 8,000, 10 weeks over the year, with the trip
+#   times of [travel]) is the minutes above: shopping 0.992, services 1.095, outdoor 1.119, culture
+#   1.185, visits 1.134 (visits of households with nobody at home are dropped, outings that do not
+#   fit into the day too), food 1.114 (with the lunch break). Food: Fitted:
+#   the earlier Assumption rows scaled so that food and lunch together give 15 minutes; HETUS has
+#   no restaurant visits by age, so the order between roles stays an Assumption. Chances are capped
+#   at 0.95.
+# Source, when outings begin on weekdays (Kouril, Simecek, Dytrt 2022, Cesko v pohybu: national
+#   travel survey of the Transport Research Centre, one workday of everybody aged 6+ in 9,000
+#   households, 2017-2019, Tables 34 and 37-39, by purpose,
+#   https://rstudio.cdvinfo.cz/shiny/downloads/publikace/2022_Kouril-Simecek-Dytrt_Cesko-v-pohybu.pdf):
+#   start_mean is the mean hour of the beginning ("hodina zacatku"), start_peak the hour with the
+#   most people out on it ("maximum, hodina"): nakup (shopping) for under 18 14.0 and 16, the
+#   economically active 18-64 14.3 and 16, the inactive 18-64 11.1 and 10, 65+ 10.7 and 10;
+#   zarizovani (errands, services) 12.8 and 9, 12.6 and 10, 10.8 and 10, 10.8 and 10; volny cas
+#   (leisure: the outdoor, culture and visits here) 14.8 and 16, 15.7 and 17, 14.1 and 14, 13.3
+#   and 14. Roles: school and preschool take the under 18, workers and remote workers the active,
+#   homebound and university students the inactive (the survey counts students as inactive), the
+#   retired the 65+. Model: the beginnings are triangular, from the opening of the window, most
+#   often where the outings are under way at the middle of the peak hour (peak + 0.5 - half the
+#   length) and with the mean hour; a symmetric spread cannot put the peak of the retired at 10 with
+#   a mean of 10.7, the triangular does, and it puts 10 % of the 65+ in shops at 10 h with the time
+#   of shopping here, against 8.9 % in the survey. Assumption: at weekends, when nobody has to be
+#   anywhere, everybody begins as the inactive do on weekdays (start_mean_weekend,
+#   start_peak_weekend); the survey has no weekends.
 # The rest of the reasoning for each kind of value:
-#   - window: Assumption: the opening hours of the activity (shops 9-19, restaurants in the
-#     evening, longer at weekends, walks by day, visits in the afternoon and evening);
+#   - window: Assumption: the hours in which an outing can begin, the opening hours: the large food
+#     stores 7-20 (Saturday 8-18), offices, surgeries and post offices 7-18 (Saturday mornings),
+#     restaurants in the evening (longer at weekends), sports and walks 6-21, culture, clubs and
+#     meetings 9-22, visits 10-21;
 #   - duration_shape: Assumption: 3 gives a moderate spread (a few much longer than the mean);
-#   - favourites: Assumption: how many regular places a person has: 3 shops, 3 restaurants, 2
-#     walking places, 3 families or friends;
+#   - favourites: Assumption: how many regular places a person has: 3 shops, 3 restaurants, 3
+#     services, 2 outdoor places, 2 places of culture, 3 families or friends;
 #   - mean_regulars: how many people use the same place. Derived for shops and restaurants: the
 #     number of places a person knows times the people per place: shops, over 100 thousand in
 #     Czechia (https://ipodpora.odbory.info/soubory/dms/wysiwyg_uploads/a05b113e9f39c8af/uploads/Informace-o-kompletnim-CENSU-maloobchodni-site-a-MIKROCENSU-maloobchodni-site-a-stravovani.pdf),
-#     are one per 105 people, so 3 * 105 = 315; restaurants and bars, 48,837 enterprises in 2019 (Eurostat
-#     sbs_sc_1b_se_r2, I56), are one per 218 people, so 3 * 218 = 654. Assumption for a park (400);
-#   - size_sigma, distance_scale, age_scale, area_sigma: Model parameters (spread of the sizes of
-#     places, distance decay of the choice, how strongly places keep to one age group, spread of
-#     space per person); age_scale is large for shops (40, everybody shops), small for restaurants
-#     (14) and visits (12, friends are of similar age);
-#   - area_mean: Assumption: space per person present: 9 m2 in a shop, 2.5 m2 in a restaurant
-#     (tables are close), 60 m2 in a park (open space);
+#     are one per 105 people, so 3 * 105 = 315; restaurants and bars, 48,837 enterprises in 2019
+#     (Eurostat sbs_sc_1b_se_r2, I56), are one per 218 people, so 3 * 218 = 654. Assumption for an
+#     outdoor place (400), a service (315, as many as shops) and a place of culture (800: cinemas,
+#     halls, churches and club rooms are fewer and larger);
+#   - size_sigma, distance_scale, age_scale: Model parameters (spread of the sizes of places,
+#     distance decay of the choice, how strongly places keep to one age group, spread of space per
+#     person); age_scale is large for shops and services (40, everybody uses them), small for
+#     restaurants (14), culture (20) and visits (12, friends are of similar age);
+#   - area_mean: Assumption: space per person present at the busiest hour: 9 m2 in a shop, 2.5 m2 in
+#     a restaurant (tables are close), 60 m2 outdoors (open space), 5 m2 at a service (counters and
+#     waiting rooms), 2 m2 at culture and meetings (rows of seats, club rooms). The occupancy tables
+#     of the Czech fire-safety standards (CSN 73 0818) give design maxima for such rooms but could
+#     not be opened; they would replace these values;
 #   - presence_share: the share of the regulars present at the busiest hour, which sets the floor
 #     space of a place. Derived: it is measured from the schedules themselves (the test
 #     test_presence_shares_are_the_measured_ones keeps it true).
-# Everybody meets somebody: shops, pubs and cafes, walks and visits of family and friends.
-# kind "site": regulars choose favourite places (mean number of regulars, spread of sizes,
-# distance decay, age scale in years (places favour the ages that typically visit them; smaller
-# means more age-segregated), space per person present, share of regulars present at once).
+# kind "site": regulars choose favourite places (mean number of regulars, spread of sizes, distance
+# decay, age scale in years, space per person present, share of regulars present at once).
 # kind "visit": people visit the homes of friends and relatives, similar in age and nearby.
 # probability: chance per day as [weekday, weekend], by role, multiplied by personal sociability.
-#   The probabilities follow how much free time a role has: higher at weekends for everybody who
-#   works or studies, highest on weekdays for retired and homebound people (they shop and walk when
-#   others are at work), lowest for food (not eating out is the usual). Children under
-#   `accompanied_under` go with their guardian, so the rows of infants and preschool children hardly
-#   matter; residents of care homes stay in and are visited.
+#   Children under `accompanied_under` go with their guardian, so the rows of infants and preschool
+#   children hardly matter; residents of care homes stay in and are visited.
 [activities.shopping]
 kind = "site"
-window = { weekday = [9, 19], weekend = [9, 14] }
-duration_mean = 0.93
+window = { weekday = [7, 20], weekend = [8, 18] }
+start_mean = { homebound = 11.1, preschool = 14.0, school = 14.0, university = 11.1, worker = 14.3, remote = 14.3, retired = 10.7 }
+start_mean_weekend = 11.1
+start_peak = { homebound = 10, preschool = 16, school = 16, university = 10, worker = 16, remote = 16, retired = 10 }
+start_peak_weekend = 10
+duration_mean = { weekday = 0.84, weekend = 1.13 }
 duration_shape = 3
 favourites = 3
 mean_regulars = 315
@@ -558,20 +796,20 @@ distance_scale = 0.10
 age_scale = 40.0
 area_mean = 9.0
 area_sigma = 0.4
-presence_share = 0.025
+presence_share = 0.029
 # Derived: 347.9 thousand of the 5,351.4 thousand people employed in Czechia in 2019 worked in retail
 #   trade (NACE G47; Eurostat nama_10_a64_e, domestic concept, national accounts), 6.5 %. They work
 #   in the shops, among the customers, and are recruited from the workers who live nearby.
 staff_share = 0.065
 [activities.shopping.probability]
-homebound = [0.319, 0.45]
-preschool = [0.319, 0.45]
-school = [0.207, 0.291]
-university = [0.287, 0.404]
-worker = [0.356, 0.501]
-remote = [0.356, 0.501]
-retired = [0.446, 0.629]
-resident = [0.00, 0.00]
+homebound = [0.347, 0.361]
+preschool = [0.347, 0.361]
+school = [0.198, 0.205]
+university = [0.292, 0.303]
+worker = [0.383, 0.398]
+remote = [0.383, 0.398]
+retired = [0.440, 0.457]
+resident = [0.000, 0.000]
 
 [activities.food]
 kind = "site"
@@ -585,25 +823,59 @@ distance_scale = 0.12
 age_scale = 14.0
 area_mean = 2.5
 area_sigma = 0.4
-presence_share = 0.026
+presence_share = 0.024
 # Derived: 193.0 thousand of the 5,351.4 thousand people employed in Czechia in 2019 worked in
 #   accommodation and food service (NACE I; Eurostat nama_10_a64_e, domestic concept), 3.6 %. The
 #   sector includes hotels, whose guests the town does not have; restaurants and cafes are most of it.
 staff_share = 0.036
 [activities.food.probability]
-homebound = [0.07, 0.13]
-preschool = [0.0, 0.13]
-school = [0.03, 0.2]
-university = [0.35, 0.46]
-worker = [0.17, 0.36]
-remote = [0.14, 0.33]
-retired = [0.07, 0.16]
-resident = [0.00, 0.00]
+homebound = [0.078, 0.145]
+preschool = [0.000, 0.145]
+school = [0.033, 0.223]
+university = [0.390, 0.512]
+worker = [0.189, 0.401]
+remote = [0.156, 0.368]
+retired = [0.078, 0.178]
+resident = [0.000, 0.000]
 
-[activities.walk]
+[activities.services]
 kind = "site"
-window = { weekday = [10, 19], weekend = [10, 18] }
-duration_mean = 1.67
+window = { weekday = [7, 18], weekend = [8, 12] }
+start_mean = { homebound = 10.8, preschool = 12.8, school = 12.8, university = 10.8, worker = 12.6, remote = 12.6, retired = 10.8 }
+start_mean_weekend = 10.8
+start_peak = { homebound = 10, preschool = 9, school = 9, university = 10, worker = 10, remote = 10, retired = 10 }
+start_peak_weekend = 10
+duration_mean = { weekday = 0.84, weekend = 1.03 }
+duration_shape = 3
+favourites = 3
+mean_regulars = 315
+size_sigma = 0.8
+distance_scale = 0.10
+age_scale = 40.0
+area_mean = 5.0
+area_sigma = 0.4
+presence_share = 0.025
+[activities.services.probability]
+homebound = [0.262, 0.202]
+preschool = [0.262, 0.202]
+school = [0.149, 0.115]
+university = [0.222, 0.171]
+worker = [0.289, 0.223]
+remote = [0.289, 0.223]
+retired = [0.331, 0.256]
+resident = [0.000, 0.000]
+
+[activities.outdoor]
+kind = "site"
+# Source: sport, walks and other outdoor activities (HETUS "sports and outdoor"): in the open air,
+#   whose virus is carried away at once, so there is no spread through shared air.
+indoor = false
+window = { weekday = [6, 21], weekend = [7, 20] }
+start_mean = { homebound = 14.1, preschool = 14.8, school = 14.8, university = 14.1, worker = 15.7, remote = 15.7, retired = 13.3 }
+start_mean_weekend = 14.1
+start_peak = { homebound = 14, preschool = 16, school = 16, university = 14, worker = 17, remote = 17, retired = 14 }
+start_peak_weekend = 14
+duration_mean = { weekday = 1.45, weekend = 1.73 }
 duration_shape = 3
 favourites = 2
 mean_regulars = 400
@@ -612,48 +884,108 @@ distance_scale = 0.12
 age_scale = 30.0
 area_mean = 60.0
 area_sigma = 0.5
-presence_share = 0.086
-[activities.walk.probability]
-homebound = [0.653, 0.95]
-preschool = [0.653, 0.95]
-school = [0.898, 0.95]
-university = [0.764, 0.95]
-worker = [0.683, 0.95]
-remote = [0.683, 0.95]
-retired = [0.861, 0.95]
-resident = [0.00, 0.00]
+presence_share = 0.036
+[activities.outdoor.probability]
+homebound = [0.271, 0.336]
+preschool = [0.271, 0.336]
+school = [0.437, 0.544]
+university = [0.331, 0.412]
+worker = [0.250, 0.310]
+remote = [0.250, 0.310]
+retired = [0.295, 0.365]
+resident = [0.000, 0.000]
+
+[activities.culture]
+kind = "site"
+window = { weekday = [9, 22], weekend = [9, 22] }
+start_mean = { homebound = 14.1, preschool = 14.8, school = 14.8, university = 14.1, worker = 15.7, remote = 15.7, retired = 13.3 }
+start_mean_weekend = 14.1
+start_peak = { homebound = 14, preschool = 16, school = 16, university = 14, worker = 17, remote = 17, retired = 14 }
+start_peak_weekend = 14
+duration_mean = { weekday = 2.0, weekend = 2.13 }
+duration_shape = 3
+favourites = 2
+mean_regulars = 800
+size_sigma = 0.8
+distance_scale = 0.15
+age_scale = 20.0
+area_mean = 2.0
+area_sigma = 0.4
+presence_share = 0.034
+[activities.culture.probability]
+homebound = [0.117, 0.217]
+preschool = [0.117, 0.217]
+school = [0.124, 0.229]
+university = [0.141, 0.260]
+worker = [0.141, 0.260]
+remote = [0.141, 0.260]
+retired = [0.178, 0.328]
+resident = [0.000, 0.000]
 
 # Visits are to friends of a similar age and to relatives of the next generation (parents, grown-up
-# children), who are about a generation older or younger.
-# family_share: Derived: the share of relatives among the people one meets at least every week.
-#   Getting together in person with relatives outside the household and with friends at least
-#   weekly, Czechia 2015 (EU-SILC ad hoc module, Eurostat ilc_scp09), relatives and friends: 16-24
-#   years 51.6 and 83.6 %, 25-34 52.3 and 59.1, 35-44 48.6 and 40.1, 45-54 44.3 and 33.0, 55-64 49.4
-#   and 32.5, 65-74 48.4 and 29.1, 75+ 52.7 and 23.2; relatives / (relatives + friends) = 0.38,
-#   0.47, 0.55, 0.57, 0.60, 0.62, 0.69 (2022: the same within a few points). The survey counts all
-#   relatives (also siblings and cousins), the model only the next generation, which they mostly are
-#   for the old and the young. Assumption: the 16-24 value for 10-15, who are not asked.
-# generation_gap: Derived: the mean age of women at childbirth in Czechia was 24.7 to 27.2 years in
-#   1970-2000 (Eurostat demo_find), when the parents of today's adults had them: the mean, 25.4.
+# children), who are about a generation older or younger. The visitor is in the host's dwelling (the
+# venue of a visit is the host household; see the dwellings of [households]) and goes only to a
+# household where somebody is at home: if nobody is at home in the household of today's plan, to
+# another favourite household with somebody at home, else the visit is dropped.
+# family_share: Derived: the share of the get-togethers with relatives (outside the household)
+#   among the get-togethers with relatives and friends. Source: the frequency of getting together
+#   with relatives and with friends, Czechia 2015 (EU-SILC ad hoc module, Eurostat ilc_scp09: every
+#   day, every week, several times a month, once a month, at least once a year, not in the last 12
+#   months; 16-24 years relatives 17.7/33.9/27.9/14.9/4.1/1.5 %, friends 43.0/40.6/12.4/2.9/0.3/0.7 %,
+#   and so on for each age group). Assumption: a class counts as 365, 130 (2.5 a week), 30, 12, 4
+#   and 0 get-togethers a year; with 2 or 3.5 a week for the weekly class the shares move by 0.01 at
+#   most. 16-24: 119 a year with relatives, 214 with friends, 0.36; 25-34 0.48; 35-44 0.57; 45-54
+#   0.59; 55-64 0.61; 65-74 0.64; 75+ 0.70. (The share of people who meet relatives every week
+#   among those who meet relatives or friends, used before, is a ratio of prevalences, not of
+#   get-togethers.) The survey counts all relatives (also siblings and cousins), the model only the
+#   next generation, which they mostly are for the old and the young. Assumption: the 16-24 value
+#   for 10-15, who are not asked.
+# mothers_age_at_birth: Source: the mean age of women at childbirth in Czechia was 24.7 to 27.2
+#   years in 1970-2000 (Eurostat demo_find), when the parents of today's adults had them: the mean,
+#   25.4. Derived (by the loader): the gap between the generations is this plus half the partner
+#   age gap of [households] (partner_age_gap_mean), since fathers are older by that gap and a
+#   person visits mothers and fathers alike.
 [activities.visit]
 kind = "visit"
-family_share = [[0, 25, 0.38], [25, 35, 0.47], [35, 45, 0.55], [45, 55, 0.57], [55, 65, 0.60], [65, 75, 0.62], [75, 128, 0.69]]
-generation_gap = 25.4
-window = { weekday = [16, 21], weekend = [12, 21] }
-duration_mean = 1.51
-duration_shape = 3
+family_share = [[0, 25, 0.36], [25, 35, 0.48], [35, 45, 0.57], [45, 55, 0.59], [55, 65, 0.61], [65, 75, 0.64], [75, 128, 0.70]]
+mothers_age_at_birth = 25.4
+window = { weekday = [10, 21], weekend = [10, 21] }
+start_mean = { homebound = 14.1, preschool = 14.8, school = 14.8, university = 14.1, worker = 15.7, remote = 15.7, retired = 13.3 }
+start_mean_weekend = 14.1
+start_peak = { homebound = 14, preschool = 16, school = 16, university = 14, worker = 17, remote = 17, retired = 14 }
+start_peak_weekend = 14
+duration_mean = { weekday = 1.42, weekend = 2.11 }
+# duration_shape: Fitted: the spread of the visit lengths (mean from HETUS above) against POLYMOD,
+#   Germany and Poland (polymod_durations_de_pl.csv): contacts in the "other" setting within 2 m
+#   for 1 hour or more a person and day, ages 20-69 0.96 (shape 3 gives 1.01, 1.5 0.97, 1 0.93).
+#   The 4 hours or more (adults 0.17, children 0.25) are not reached by any spread (shape 3 to 0.5,
+#   with the cap on outings raised from 6 to 12 h: adults 0.035-0.05, children 0.17-0.19): the
+#   town has outings of single people who meet whoever is near, whereas long contacts in the
+#   survey are people who spend hours together by choice. A sourced share of outings made with
+#   a companion was not found (HETUS tus_20wwhom gives time with a partner, child, parent or
+#   other known person over the whole day, not by activity); with one the gap could be closed.
+duration_shape = 1.5
 favourites = 3
 distance_scale = 0.15
 age_scale = 12.0
 [activities.visit.probability]
-homebound = [0.257, 0.598]
-preschool = [0.257, 0.598]
-school = [0.354, 0.824]
-university = [0.349, 0.811]
-worker = [0.249, 0.58]
-remote = [0.249, 0.58]
-retired = [0.299, 0.695]
-resident = [0.00, 0.00]
+homebound = [0.196, 0.278]
+preschool = [0.196, 0.278]
+school = [0.252, 0.356]
+university = [0.264, 0.375]
+worker = [0.185, 0.263]
+remote = [0.185, 0.263]
+retired = [0.216, 0.307]
+resident = [0.000, 0.000]
+
+# How outings are spread over the days.
+# stay_in: Fitted: the chance that somebody with no place to go on a weekday (no work, school,
+#   kindergarten that day) does not leave home at all; the others of the role go out more by as
+#   much, so the time out stays. The target is the share of people who made no trip on the surveyed
+#   workday (Cesko v pohybu, Tables 34-39, "necestuje"): under 18 13.3 %, economically active 18-64
+#   9.9 %, inactive 18-64 25.4 %, 65+ 30.1 %. Weekends are not surveyed and have no such share.
+[outings]
+stay_in = { homebound = 0.091, preschool = 0.0, school = 0.561, university = 0.091, worker = 0.232, remote = 0.232, retired = 0.126 }
 
 # ---- Daily schedules --------------------------------------------------------------------------
 
@@ -694,7 +1026,10 @@ sometimes_chance = 0.25
 
 # Source: 10.2 % of employed persons usually work in the evenings, Czechia 2019, Eurostat lfsa_ewpeve.
 #   They work a shift from 14 to 22. Model: the 5.4 % who usually work at night (lfsa_ewpnig) are
-#   counted among them, since the day of the simulation ends before midnight.
+#   counted among them: the days of the simulation are drawn one by one, everybody's ending before
+#   midnight, so a shift over midnight cannot be had without carrying a person's place from one day
+#   into the next; the places of the town (offices, shops, schools) do not work at night, so a night
+#   worker would meet nobody there either.
 [late_shift]
 share = 0.102
 start_hours_later = 7.0
@@ -714,6 +1049,13 @@ worker = 0.3
 #   without an adult; no age is set by law. Older pupils may be at home alone for a while after
 #   school, as the 42 % of pupils of grades 1-5 who do not attend the after-school club show.
 alone_from = 6
+# Source: a parent is paid for caring at home for a child under 10 who is ill or whose school or
+#   kindergarten is closed (osetrovne, Act 187/2006 Coll., section 39(1)(b)): the law counts a
+#   child under 10 as not able to spend such a day alone. So a child under 10 that does not go to
+#   its school or kindergarten (holidays, illness) keeps its guardian at home when no other adult
+#   of the household is free; the grandparents and other carers outside the household are not in
+#   the town.
+alone_all_day_from = 10
 # Source: a full-day kindergarten is open more than 6.5 and at most 12 hours a day (decree 14/2005
 #   Coll., section 1(3)). Assumption: it opens at 6, the earliest opening of the kindergartens
 #   whose rules were read; no national statistic of opening hours exists. A child is brought before
@@ -729,6 +1071,23 @@ club_share = 0.579
 #   rules of individual schools that were read open the morning club at about 6 to 7 and close at
 #   15:30 to 17:30, so 6 to 17 is used. No national statistic exists.
 club_hours = [6, 17]
+# Source: children looked after for at least an hour in a usual week by grandparents, other
+#   relatives, friends or neighbours (not their parents, not paid services), Czechia 2019, EU-SILC
+#   (Eurostat ilc_caindother): under 3 38.6 % for 1-29 hours and 1.7 % for 30 or more, from 3 to the
+#   compulsory school age 45.6 % and 2.5 %, from the school age to 12 35.5 % and 0.9 %; the hours a
+#   week of those who are (mean, ilc_camnothg0; median, ilc_camdothg0): 8.9 and 5, 9.1 and 6, 8.1
+#   and 5. Model: the carers are the grandparents, the household of a relative of the generation
+#   above the guardian among the guardian's visit favourites (other relatives, friends and
+#   neighbours are left out); the share is kept among the children who have such a household in
+#   the town (at most all of them). Such a child goes to them on a day its guardian works, from the
+#   end of its kindergarten or school (or when the guardian leaves) until the guardian is back, as
+#   often as its hours say, and also whenever it would need an adult all day and nobody of its
+#   household is free (holidays, closed schools); one of the grandparents stays at home meanwhile.
+grandparent_care = [[0, 3, 0.403], [3, 6, 0.481], [6, 13, 0.364]]
+grandparent_hours = [[0, 3, 8.9], [3, 6, 9.1], [6, 13, 8.1]]
+# Derived: a gamma distribution of the hours with the mean and the median above has the shape 0.63,
+#   0.86 and 0.76 (median / mean 0.56, 0.66, 0.62); 0.75 for all.
+grandparent_hours_shape = 0.75
 
 # Source: the Labour Code (262/2006 Coll., section 88) gives a break for food and rest of at least
 #   30 minutes after six hours of work; 0.75 h (45 minutes) is the middle of the usual 30-60.
@@ -745,10 +1104,22 @@ duration_mean = 0.75
 #   plus 1.35 % days at home of those who work from home sometimes (5.4 % of the employed in 2019,
 #   Eurostat lfsa_ehomp, on an assumed quarter of their days) is 14 %. Public holidays are in the
 #   calendar and the days off of weekend workers are added for each person.
+# Checked, not used: when the leave is taken. HETUS 2020 (tus_20period, employment time by month,
+#   medians over DE, PL, HU, BG, HR, relative to the year) gives July 0.99 and August 0.98 of the
+#   mean, within the month-to-month scatter of the survey (April 0.92, June 1.07, December 0.91,
+#   when the public holidays of the calendar fall): no concentration in the school holidays is
+#   seen, so the absence is the same on every working day.
+# school absence: Derived: the pupils of the schools inspected in 2018/19 missed 74.9 lessons each
+#   (Czech School Inspectorate, annual report 2018/19, p. 73-74,
+#   https://csicr.cz/html/2019/Vyrocni_zprava_CSI_2018_2019/resources/_pdfs_/b545d707f9c9997ce6a1ddeee3a83119_74.pdf),
+#   of a year of 952 lessons: 24.7 a week (the minimum lessons of the basic school, 118 in grades 1-5
+#   and 104 in grades 6-9, framework curriculum RVP ZV, over 9 years) on the 193 school days of
+#   2018/19 in the calendar below: 7.9 %. All causes, so also the illnesses that a disease of the
+#   model adds on top while it runs.
 # Assumption for all other values of this group. Why these:
-#   - absence of school (5 %), preschool (8 %) and university (15 %): children are ill more often than
-#     adults, small children most (so 8 % in kindergarten), and university attendance is voluntary
-#     (so 15 %); holidays are in the calendar, so this is illness in term time;
+#   - absence of preschool (8 %) and university (15 %): small children are ill more often than
+#     pupils (so 8 % in kindergarten), and university attendance is voluntary (so 15 %); holidays are
+#     in the calendar, so this is illness in term time;
 #   - start_personal_sd, end_personal_sd (hours): how far a person's usual times differ from the
 #     role's. Workers have flexible hours (0.9 h), school start is fixed by the bell (0.1 h) but the
 #     end varies with the timetable and after-school clubs (0.6 h), kindergarten children come and
@@ -766,7 +1137,7 @@ end_daily_sd = 0.4
 overtime_probability = 0.12
 overtime_mean = 1.2
 [variability.school]
-absence = 0.05
+absence = 0.079
 start_personal_sd = 0.1
 start_daily_sd = 0.15
 end_personal_sd = 0.6
@@ -811,47 +1182,62 @@ university = [["12-23", "02-13"], ["05-16", "09-19"]]
 
 # ---- Travel -----------------------------------------------------------------------------------
 
-# Everybody travels the way suits them: the mode depends on age and on how far the usual trip is.
-# Speeds are door to door in a town, in km/h; each person's speed varies around the mode's.
-# Assumption (speeds, mixes by age, speed_sigma): typical urban values, not taken from a travel
-#   survey with age and mode, which could not be found. As a plausibility check, over 60 % of Czech
-#   commuters travel by car (census, quoted by https://www.seznamzpravy.cz/clanek/domaci-zivot-v-cesku-proc-se-vic-nez-pulka-cechu-nejcasteji-dopravuje-autem-nekde-to-jinak-nejde-249765).
-# Model, for the distances: they set how far a mode stops being suitable. Walking is likely up to
-#   about 1.5 km and rare far beyond it, cycling suits up to about 6 km, public transport and cars
-#   do not pay off for short trips (800 m and 500 m, the time to get to the stop or park), and become
-#   likelier the longer the trip.
-# speed_sigma 0.15: people differ in speed by about 15 % around the mode's value.
+# Source for this section: Kouril, Simecek, Dytrt 2022, Cesko v pohybu (national travel survey of
+#   the Transport Research Centre, one workday of everybody aged 6+ in 9,000 households, 2017-2019),
+#   https://rstudio.cdvinfo.cz/shiny/downloads/publikace/2022_Kouril-Simecek-Dytrt_Cesko-v-pohybu.pdf
+# How long people are on the way is the survey's, not the town's: the arena is a stylised town whose
+#   distances are not real (many workers commute out of their town, which the closed town folds into
+#   it). A trip takes a time drawn for the person's age group (gamma, mean trip_minutes), so that the
+#   time on the way per day is the survey's; the person moves to the place in that time, at
+#   whatever speed it takes.
+#   The schedules keep the time at places: work begins on arrival, an outing lasts its length at the
+#   place, and the way back follows.
+# trip_minutes: Fitted: the mean time of a trip by age group, [from age, to age, minutes], so that
+#   the time on the way per person and day is the survey's: the minutes of a day of a person who
+#   travelled (Table 32: 6-18 66, 19-29 88, 30-39 81, 40-49 89, 50-59 83, 60-69 75, 70+ 70) times the
+#   share of people who travelled (Table 28: 83.7, 84.5, 85.8, 87.6, 85.4, 76.9, 66.6 %), so 55,
+#   74, 70, 78, 71, 58 and 47 minutes. Measured in the engine (2 towns of 8,000, 10 weeks over the
+#   year): 54.5, 72.6, 68.5, 76.6, 69.7, 56.6, 46.0. The survey's own trips last longer (24, 30,
+#   27, 31, 29, 27 and 25 min, Table 32), but its people make fewer of them (2.33 a person and day,
+#   Table 28): here everybody goes home between two outings, so the time per day is matched, not
+#   the time per trip. Children under 6 travel with their guardian.
+# trip_shape: Assumption: 2, a right-skewed spread of trip times (many short trips, a few long
+#   commutes); the survey publishes only means.
+# Model: the lunch break and moving about within a place go at the speed of the person's mode
+#   (speed below), not by a drawn time.
 [travel]
+trip_minutes = [[0, 19, 15.1], [19, 30, 20.7], [30, 40, 19.6], [40, 50, 21.4], [50, 60, 19.7], [60, 70, 18.3], [70, 128, 17.7]]
+trip_shape = 2.0
 speed_sigma = 0.15
-walk_distance = 1500         # meters; walking gets rare beyond this
-bike_distance = 6000
-transit_distance = 800       # public transport and cars need some distance to pay off
-car_distance = 500
+# Source: the main mode of the trips by age group (Table 31), walking / cycling / car as the driver /
+#   car as a passenger / public transport, % (other modes, 0.6-1.1 %, left out and the rest scaled):
+#   6-18 54.2/5.4/0.8/16.5/22.6, 19-29 31.1/3.2/26.5/8.6/30.0, 30-39 30.1/3.1/41.0/7.7/17.4, 40-49
+#   26.7/4.1/44.1/6.8/17.2, 50-59 28.6/4.8/39.5/8.5/17.6, 60-69 36.5/5.7/28.4/11.0/17.8, 70+
+#   44.5/5.2/17.9/10.8/20.7. Model: every person has one mode, drawn with these shares of trips (so
+#   the shares of trips are kept); nobody under 18 drives (the share of drivers goes to passengers).
+[travel.modes]
+ages = [[6, 19], [19, 30], [30, 40], [40, 50], [50, 60], [60, 70], [70, 128]]
+walk = [54.2, 31.1, 30.1, 26.7, 28.6, 36.5, 44.5]
+bike = [5.4, 3.2, 3.1, 4.1, 4.8, 5.7, 5.2]
+car_driver = [0.8, 26.5, 41.0, 44.1, 39.5, 28.4, 17.9]
+car_passenger = [16.5, 8.6, 7.7, 6.8, 8.5, 11.0, 10.8]
+transit = [22.6, 30.0, 17.4, 17.2, 17.6, 17.8, 20.7]
 # Assumption, door to door (including waiting, parking and crossings, which is why they are lower
-#   than the speed of the vehicle): walking 4.5 km/h (a free walking speed is about 5 km/h), cycling
-#   13 km/h, public transport 16 km/h (about 20 km/h on the line, less with the walk to the stop and
-#   waiting) and the car 28 km/h (town traffic, with the search for parking).
+#   than the speed of the vehicle), for the moves without a drawn time: walking 4.5 km/h (a free
+#   walking speed is about 5 km/h), cycling 13 km/h, public transport 16 km/h (about 20 km/h on the
+#   line, less with the walk to the stop and waiting) and the car 28 km/h (town traffic, with the
+#   search for parking).
 [travel.speed]
 walk = 4.5
 bike = 13.0
 transit = 16.0
 car = 28.0
-# Assumption (mixes): the shares of the modes for a trip that suits all of them. Children under 15
-#   mostly walk or are taken (walk 0.45, a car 0.20, buses 0.27 for older children), adults mostly
-#   drive (0.54, as most commuters do) and a quarter use public transport, seniors drive less (0.30)
-#   and walk and use public transport more (0.35 and 0.32). Cycling is rare for everybody (0.03-0.08).
-[travel.mix.child]           # under 15
-walk = 0.45
-bike = 0.08
-transit = 0.27
-car = 0.20
-[travel.mix.adult]
-walk = 0.15
-bike = 0.06
-transit = 0.25
-car = 0.54
-[travel.mix.senior]          # 65 and over
-walk = 0.35
-bike = 0.03
-transit = 0.32
-car = 0.30
+# Public transport vehicles: the passengers of a trip by public transport ride in a vehicle with
+#   others who set off at the same time, and meet them there (a venue of its own). Assumption (no
+#   published occupancy of Czech town buses was found): a vehicle carries 20 passengers on average
+#   (a town bus has about 90 places), on a floor of 30 m2 (a 12 m bus); a passenger is in the vehicle
+#   for the middle 60 % of the trip (the walk to the stop and the wait are the rest).
+[travel.vehicles]
+load = 20
+floor_area = 30.0
+in_vehicle_share = 0.6

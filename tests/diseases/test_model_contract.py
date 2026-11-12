@@ -64,6 +64,11 @@ def parameters_of(model_class, rng) -> dict:
         if float(spec.step).is_integer():
             value = round(value)
         given[name] = float(np.clip(value, spec.minimum, spec.maximum))
+    # the full-exposure distance cannot exceed the contact distance
+    contact = given.get("contact_distance", model_class.PARAMETERS["contact_distance"].default)
+    near = given.get("near_distance", model_class.PARAMETERS["near_distance"].default)
+    if near > contact:
+        given["near_distance"] = contact
     return given
 
 
@@ -211,6 +216,14 @@ def test_random_runs_keep_every_invariant_of_the_state_machine(key):
             assert not (disease_state.limits_outings & ~ill).any()
             assert not (disease_state.stays_home & ~(ill | confined)).any()
             assert disease_state.stays_home[confined].all()
+            # the admitted are in a hospital state, away from the town, spread nothing in it and
+            # do not go out
+            hospital = np.isin(after, [names.index(s) for s in model_class.HOSPITAL])
+            admitted = model.admitted(disease_state)
+            assert not (admitted & ~hospital).any()
+            assert model.away_mask(disease_state)[admitted].all()
+            assert not model.infectious_weight(disease_state)[admitted].any()
+            assert disease_state.stays_home[admitted].all()
             weights = model.infectious_weight(disease_state)
             assert (weights >= 0).all() and not weights[
                 ~np.isin(after, [names.index(s) for s in model_class.INFECTIOUS_STATES])

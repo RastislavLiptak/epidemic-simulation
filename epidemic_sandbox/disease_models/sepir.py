@@ -27,8 +27,10 @@ class SepirModel(DiseaseModelAbstract):
     feels well and goes about the day as usual, then the symptomatic period, in which a person
     may stay at home. The symptomatic period has two parts: the first at full infectiousness and
     a waning one, in which the person is still ill and spreads less (infectiousness peaks around
-    the onset and falls in the following days). The incubation period of the literature is the
-    latent plus the presymptomatic period. With the relative infectiousness w of the
+    the onset and falls in the following days); in it a person who was off sick may be back at
+    work or school (the waning period has its own chances of staying at home and of skipping
+    outings). The incubation period of the literature is the latent plus the presymptomatic
+    period. With the relative infectiousness w of the
     presymptomatic state and v of the waning one, and the mean durations d_P, d_I and d_W, a
     person spreads for w d_P + d_I + v d_W days (weighted), and the share of all transmission
     before symptoms (theta of Fraser et al. 2004) is w d_P / (w d_P + d_I + v d_W) without
@@ -51,9 +53,10 @@ class SepirModel(DiseaseModelAbstract):
             "Latent period (days)",
             "Average number of days between infection and becoming infectious. Exposed people do "
             "not spread the disease yet. Together with the presymptomatic period it makes the "
-            "incubation period. Default 4.1 (Derived: the SARS-CoV-2 incubation period of 5.5 "
-            "days, Ferretti et al. 2020, Science, minus the presymptomatic period).",
-            4.1,
+            "incubation period. Default 2.5 (for COVID-19 a part of the incubation period of 5.5 "
+            "days, Ferretti et al. 2020, Science, fitted with the presymptomatic period to the "
+            "generation interval of the same paper; the starting value of that fit).",
+            2.5,
             0.5,
             30.0,
             0.5,
@@ -61,9 +64,9 @@ class SepirModel(DiseaseModelAbstract):
         "presymptomatic_days": ParameterSpec(
             "Presymptomatic period (days)",
             "Average number of days a person spreads the disease before showing symptoms. They "
-            "feel well and behave as usual. Default 1.4 (Derived: the mean incubation period of "
-            "6.9 days minus the mean latent period of 5.5 days, Xin et al. 2022, Clin Infect Dis).",
-            1.4,
+            "feel well and behave as usual. Default 3.0 (for COVID-19 the rest of the incubation "
+            "period of 5.5 days, Ferretti et al. 2020; see the latent period).",
+            3.0,
             0.5,
             30.0,
             0.5,
@@ -83,12 +86,31 @@ class SepirModel(DiseaseModelAbstract):
         "waning_days": ParameterSpec(
             "Waning period (days)",
             "Average number of days a person is still ill and spreads less after the period at "
-            "full infectiousness, before recovering. Default 6.0 (Derived: no infectious "
+            "full infectiousness, before recovering. Default 6.25 (Derived: no infectious "
             "SARS-CoV-2 was isolated after day 8 of symptoms in mild cases, Wolfel et al. 2020, "
             "Nature, minus the 1.75 days at full infectiousness).",
             6.25,
             0.1,
             60.0,
+            0.01,
+        ),
+        "waning_stay_home": ParameterSpec(
+            "Stay-at-home share in the waning period",
+            "Share of the people in the waning period who still stay at home, for a person whose "
+            "stay-at-home age effect is 1: those who are off sick for fewer days than they are ill "
+            "are back at work or school by then.",
+            0.0,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        "waning_limit_outings": ParameterSpec(
+            "Fewer outings share in the waning period",
+            "Share of the people in the waning period who still go to work or school but skip "
+            "errands, visits and leisure.",
+            0.0,
+            0.0,
+            1.0,
             0.01,
         ),
         "waning_infectiousness": ParameterSpec(
@@ -115,10 +137,11 @@ class SepirModel(DiseaseModelAbstract):
             "Presymptomatic infectiousness (relative)",
             "How much a presymptomatic person spreads per day compared with a symptomatic person "
             "who goes about as usual: 1 is the same chance of infecting someone within contact "
-            "distance, 0 means they do not spread at all, 2 twice as much. Default 1 (Source: the "
+            "distance, 0 means they do not spread at all, 2 twice as much. Default 0.8 (Fitted for "
+            "COVID-19 to the share of transmission before the symptoms, the starting value; the "
             "secondary attack rate of presymptomatic cases relative to symptomatic ones is 1.00, "
-            "Buitrago-Garcia et al. 2022, PLoS Med).",
-            1.0,
+            "95% CI 0.37-2.71, Buitrago-Garcia et al. 2022, PLoS Med).",
+            0.8,
             0.0,
             2.0,
             0.05,
@@ -137,6 +160,7 @@ class SepirModel(DiseaseModelAbstract):
     }
     INFECTIOUS_STATES = frozenset({ASYMPTOMATIC, PRESYMPTOMATIC, INFECTIOUS, WANING})
     SYMPTOMATIC_STATES = frozenset({INFECTIOUS, WANING})
+    BEHAVIOUR = {WANING: ("waning_stay_home", "waning_limit_outings")}
     STATE_INFECTIOUSNESS = {
         PRESYMPTOMATIC: "presymptomatic_infectiousness",
         WANING: "waning_infectiousness",

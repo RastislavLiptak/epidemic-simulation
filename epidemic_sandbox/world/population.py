@@ -110,7 +110,6 @@ class PopulationParameters:
     people: np.ndarray
     household_sizes: np.ndarray
     household_weights: np.ndarray
-    household_radius: float
     first_birth: np.ndarray
     sibling_spacing_mean: float
     sibling_spacing_sd: float
@@ -122,11 +121,14 @@ class PopulationParameters:
     kinds: dict[int, tuple[tuple[str, ...], np.ndarray]]
     kind_names: tuple[str, ...]
     kind_shares: np.ndarray
-    head_age: dict[str, tuple[int, np.ndarray]]
+    head_age: dict[str, tuple[np.ndarray, np.ndarray]]
     child_ages: dict[str, tuple[int, int]]
     preschool: np.ndarray
     school: np.ndarray
     university: np.ndarray
+    secondary: np.ndarray
+    part_time_students: float
+    part_time_weekdays: float
     employment: np.ndarray
     employment_bands: np.ndarray
     remote_share: float
@@ -145,13 +147,18 @@ class PopulationParameters:
 class Population:
     """Age, sex and household of everybody; people of a household are next to each other.
 
-    Care-home residents come last, every home being one household.
+    Care-home residents come last, every home being one household. `kind` is the kind of each
+    household (an index of `PopulationParameters.kind_names`, -1 for a care home) and `partner`
+    the partner of everybody who lives in a couple (-1 for the others): the man and the woman of
+    a couple, the grandparents of a multigenerational household and the parents of its children.
     """
 
     age: np.ndarray
     sex: np.ndarray
     household: np.ndarray
     resident: np.ndarray
+    kind: np.ndarray | None = None
+    partner: np.ndarray | None = None
 
 
 def read_people(source: Path) -> np.ndarray:
@@ -202,11 +209,33 @@ def _load_kinds(households: dict, sizes: np.ndarray) -> dict:
     return kinds
 
 
+def _shares(weights: list[float]) -> np.ndarray:
+    return np.array(weights, float) / sum(weights)
+
+
+def _head_age_edges(table: dict, group_width: int) -> np.ndarray:
+    """The limits of the age bands of a head of household: published ones or equal groups."""
+    if "edges" in table:
+        return np.array(table["edges"], float)
+    return table["start"] + np.arange(len(table["weights"]) + 1) * float(group_width)
+
+
+def _check_head_age(name: str, table: dict) -> None:
+    require_weights(f"head_age.{name}", table["weights"])
+    if "edges" not in table:
+        require(table["start"] >= 0, f"head_age.{name}: start must not be negative")
+        return
+    edges = np.array(table["edges"], float)
+    require(
+        len(edges) == len(table["weights"]) + 1 and edges[0] >= 0 and (np.diff(edges) > 0).all(),
+        f"head_age.{name}: edges must rise and bound every weight",
+    )
+
+
 def _check_households(households: dict) -> None:
     for name, table in households["head_age"].items():
-        require_weights(f"head_age.{name}", table["weights"])
-        require(table["start"] >= 0, f"head_age.{name}: start must not be negative")
-    for key in ("radius", "sibling_spacing_mean", "sibling_spacing_sd"):
+        _check_head_age(name, table)
+    for key in ("sibling_spacing_mean", "sibling_spacing_sd"):
         require_positive(f"households.{key}", households[key])
     require_not_negative("households.partner_age_gap_sd", households["partner_age_gap_sd"])
     require_not_negative("households.parent_age_gap_min", households["parent_age_gap_min"])
@@ -230,7 +259,7 @@ def load_population_parameters(
     kinds = _load_kinds(households, sizes)
     _check_households(households)
     head_age = {
-        name: (table["start"], np.array(table["weights"], float) / sum(table["weights"]))
+        name: (_head_age_edges(table, age["group_width"]), _shares(table["weights"]))
         for name, table in households["head_age"].items()
     }
     used = {name for names, _ in kinds.values() for name in names}
@@ -252,13 +281,16 @@ def load_population_parameters(
     }
     if (sum(tables.values()) > 1.0 + 1e-9).any():
         raise ValueError("invalid age range or share: education shares exceed 1 at some age")
+    tables["secondary"] = _by_age_and_sex(raw["education"]["secondary"], "secondary")
+    part_time = raw["education"]["part_time_students"]
+    require_share("education.part_time_students", part_time)
+    part_time_weekdays = raw["education"]["part_time_weekdays"]
+    require(0 <= part_time_weekdays <= 5, "education.part_time_weekdays must be 0 to 5")
     mothers = np.array(employment["mother_employment"], float).reshape(-1, 2)
     if ((mothers[:, 1] < 0) | (mothers[:, 1] > 1)).any() or (np.diff(mothers[:, 0]) <= 0).any():
         raise ValueError("employment.mother_employment needs rising ages and shares of 0 to 1")
     care = raw["care_homes"]
-    rates = _by_age_and_sex(
-        [[start, end, rate, rate] for start, end, rate in care["rates"]], "care_homes.rates"
-    )
+    rates = _by_age_and_sex(care["rates"], "care_homes.rates")
     require_positive("care_homes.mean_size", care["mean_size"])
     rows = np.array(employment["rates"], dtype=float).reshape(-1, 4)
     return PopulationParameters(
@@ -268,7 +300,6 @@ def load_population_parameters(
         people=people,
         household_sizes=sizes,
         household_weights=weights / weights.sum(),
-        household_radius=float(households["radius"]),
         first_birth=np.array(households["first_birth"], float).reshape(-1, 3),
         sibling_spacing_mean=households["sibling_spacing_mean"],
         sibling_spacing_sd=households["sibling_spacing_sd"],
@@ -290,6 +321,8 @@ def load_population_parameters(
         mother_ages=(low, high),
         care_home_rates=rates,
         care_home_size=care["mean_size"],
+        part_time_students=float(part_time),
+        part_time_weekdays=float(part_time_weekdays),
         **tables,
     )
 
@@ -300,7 +333,8 @@ def generate_population(count: int, params: PopulationParameters, rng) -> Popula
     residents = round(count * in_care.sum())
     private = count - residents
     log_weights, weight_cap = _fit_household_weights(params)
-    sizes_kept, ages_kept, sexes_kept, people = [], [], [], 0
+    kept = {key: [] for key in ("sizes", "ages", "sexes", "kinds")}
+    people = 0
     while people < private:
         batch = int(
             np.clip((private - people) / params.mean_household_size * 3, 1000, GENERATION_CHUNK)
@@ -308,14 +342,15 @@ def generate_population(count: int, params: PopulationParameters, rng) -> Popula
         sizes, ages, sexes, kinds, valid = _generate_households(batch, params, rng)
         cells = _household_cells(sizes, ages, sexes, kinds, params)
         keep = valid & (rng.random(batch) < np.exp(log_weights[cells].sum(axis=1)) / weight_cap)
-        sizes_kept.append(sizes[keep])
-        ages_kept.append(ages[keep])
-        sexes_kept.append(sexes[keep])
+        for key, values in zip(kept, (sizes, ages, sexes, kinds), strict=True):
+            kept[key].append(values[keep])
         people += int(sizes[keep].sum())
-    sizes, ages, sexes = (np.concatenate(kept) for kept in (sizes_kept, ages_kept, sexes_kept))
+    sizes, ages, sexes, kinds = (np.concatenate(kept[key]) for key in kept)
     households = np.searchsorted(np.cumsum(sizes), private) + 1
     present = ~np.isnan(ages[:households])
+    partner = _partners(sizes[:households], kinds[:households], present, private, params)
     care_age, care_sex, care_home = _care_home_residents(residents, in_care, params, rng)
+    homes = int(care_home.max()) + 1 if len(care_home) else 0
     return Population(
         np.concatenate([np.floor(ages[:households][present])[:private], care_age]).astype(np.int16),
         np.concatenate([sexes[:households][present][:private], care_sex]).astype(np.int8),
@@ -323,7 +358,36 @@ def generate_population(count: int, params: PopulationParameters, rng) -> Popula
             [np.repeat(np.arange(households), sizes[:households])[:private], households + care_home]
         ).astype(np.int32),
         np.arange(count) >= private,
+        np.concatenate([kinds[:households], np.full(homes, -1)]).astype(np.int16),
+        np.concatenate([partner, np.full(residents, -1)]).astype(np.int64),
     )
+
+
+def _partners(sizes, kinds, present, private, params: PopulationParameters) -> np.ndarray:
+    """The partner of every person of the private households (-1 for none), from the order in
+    which `_members` puts the people of each kind: the man and the woman of a couple first, in a
+    multigenerational household the grandparents and then the parents of the children."""
+    width = present.shape[1]
+    column = np.full((len(sizes), width), -1, np.int64)
+    couple = np.isin(
+        kinds,
+        [params.kind_names.index(name) for name in params.kind_names if name.startswith("couple")],
+    )
+    generations = kinds == (
+        params.kind_names.index("multigenerational")
+        if "multigenerational" in params.kind_names
+        else -1
+    )
+    first_pair = (couple | generations) & (sizes >= 2)
+    column[first_pair, 0], column[first_pair, 1] = 1, 0
+    if width >= 4:
+        middle_pair = generations & (sizes >= 5)
+        column[middle_pair, 2], column[middle_pair, 3] = 3, 2
+    start = np.concatenate([[0], np.cumsum(sizes)[:-1]])
+    flat = np.where(column >= 0, start[:, None] + column, -1)[present]
+    flat = flat[:private]
+    flat[flat >= private] = -1  # the partner was cut off with the last household
+    return flat
 
 
 def _care_home_residents(count: int, in_care: np.ndarray, params: PopulationParameters, rng):
@@ -428,9 +492,9 @@ def _members(kind: str, size: int, count: int, params: PopulationParameters, rng
     In a couple the head is the man; a family that cannot exist, such as a mother too old for her
     children or a partner under age, is discarded and not repaired.
     """
-    start, weights = params.head_age[kind]
+    edges, weights = params.head_age[kind]
     chosen = rng.choice(len(weights), count, p=weights)
-    head = start + (chosen + rng.random(count)) * params.age_group_width
+    head = edges[chosen] + rng.random(count) * (edges[chosen + 1] - edges[chosen])
     fits = head < AGES
     random_sex = (rng.random((count, size)) < 0.5).astype(np.int8)
     if kind in ("alone", "alone_older", "alone_senior", "other"):

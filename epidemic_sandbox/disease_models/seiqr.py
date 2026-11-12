@@ -24,9 +24,11 @@ class SeiqrModel(DiseaseModelAbstract):
 
     SEIR with isolation of detected cases. A person becomes infectious and goes about their days
     until, after the detection delay, the case is either detected (the share `detection_coverage`,
-    scaled by the "branching" age effect) and isolated at home until recovery, or not and carries
-    on unchanged. A person who is not detected spreads for the whole natural infectious period,
-    `detection_delay_days` + `undetected_days`; a detected one for the delay and then, with reduced
+    scaled by the "branching" age effect) and isolated until recovery, or not and carries on
+    unchanged. A share of the isolated (`admission_share`) is isolated in hospital, away from the
+    town; the rest is isolated at home, where the household is still met. A person who is not
+    detected spreads for the whole natural infectious period, `detection_delay_days` +
+    `undetected_days`; a detected one for the delay and then, with reduced
     infectiousness, for `quarantine_days` (set it equal to `undetected_days` to isolate until the
     infection would have ended). Death can follow only at the end of the stay in either of the last
     two states, with the same `fatality`. Detection coverage 0 is a plain SEIR. A share of the
@@ -99,6 +101,15 @@ class SeiqrModel(DiseaseModelAbstract):
             1.0,
             0.05,
         ),
+        "admission_share": ParameterSpec(
+            "Isolated in hospital (share)",
+            "Share of the detected cases who are isolated in hospital, away from the town, where "
+            "they meet nobody in it; the others are isolated at home. 0 means isolation at home.",
+            0.0,
+            0.0,
+            1.0,
+            0.01,
+        ),
         "quarantine_infectiousness": ParameterSpec(
             "Infectiousness in isolation",
             "How much an isolated person still spreads compared with a free one, beyond the "
@@ -127,6 +138,7 @@ class SeiqrModel(DiseaseModelAbstract):
     INFECTIOUS_STATES = frozenset({ASYMPTOMATIC, INFECTIOUS, UNDETECTED, QUARANTINED})
     SYMPTOMATIC_STATES = frozenset({INFECTIOUS, UNDETECTED})
     CONFINED_STATES = frozenset({QUARANTINED})
+    HOSPITAL = {QUARANTINED: "admission_share"}
     STATE_INFECTIOUSNESS = {QUARANTINED: "quarantine_infectiousness"}
     INFECTION_ENTRY_STATE = EXPOSED
     INITIAL_CASE_STATE = INFECTIOUS
